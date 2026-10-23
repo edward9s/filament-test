@@ -26,13 +26,13 @@ jobs:
 
       - name: Prepare release signing key
         env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+          for name in KEYSTORE_BASE64 STORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
             if [[ -z "${!name:-}" ]]; then
               echo "::error::Missing repository secret: $name"
               exit 1
@@ -40,9 +40,9 @@ jobs:
           done
           umask 077
           key="$RUNNER_TEMP/filament-release.jks"
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$key"
-          if ! keytool -list -keystore "$key" -storepass:env ANDROID_KEYSTORE_PASSWORD \
-              -alias "$ANDROID_KEY_ALIAS" >/dev/null 2>&1; then
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$key"
+          if ! keytool -list -keystore "$key" -storepass:env STORE_PASSWORD \
+              -alias "$KEY_ALIAS" >/dev/null 2>&1; then
             echo '::error::Cannot open release keystore with the supplied password and alias'
             exit 1
           fi
@@ -89,10 +89,10 @@ jobs:
       - name: Build signed Android arm64 release APK
         working-directory: android
         env:
-          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/filament-release.jks
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEYSTORE_PATH: ${{ runner.temp }}/filament-release.jks
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: gradle --no-daemon --stacktrace :app:assembleRelease
 
       - name: Inspect resulting APK

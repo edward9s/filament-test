@@ -72,18 +72,17 @@ Configure these **Actions Secrets** using your existing keystore:
 
 | Secret | Value |
 | --- | --- |
-| `ANDROID_KEYSTORE_BASE64` | Base64-encoded keystore file |
-| `ANDROID_KEYSTORE_PASSWORD` | Keystore password |
-| `ANDROID_KEY_ALIAS` | Signing key alias |
-| `ANDROID_KEY_PASSWORD` | Signing key password |
+| `KEYSTORE_BASE64` | Base64-encoded keystore file |
+| `STORE_PASSWORD` | Keystore password |
+| `KEY_ALIAS` | Signing key alias |
+| `KEY_PASSWORD` | Signing key password |
 
 The workflow restores the keystore only in the runner's temporary directory and removes it
-at job end. It never generates a key. The GitHub connector cannot list existing secret names;
-if yours differ, change the workflow references to match them before running it.
+at job end. It never generates a key. The workflow references the repository Secret names listed above.
 
-For a local release build, set `ANDROID_KEYSTORE_PATH` to the absolute path of your existing
-keystore and export `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and
-`ANDROID_KEY_PASSWORD` before running Gradle. Switching from the previous debug-signed APK
+For a local release build, set `KEYSTORE_PATH` to the absolute path of your existing
+keystore and export `STORE_PASSWORD`, `KEY_ALIAS`, and
+`KEY_PASSWORD` before running Gradle. Switching from the previous debug-signed APK
 to a different release key requires uninstalling that old APK first.
 
 ## Validation

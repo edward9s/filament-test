@@ -3,8 +3,8 @@ plugins {
 }
 
 def filamentSdk = file('../../.deps/filament').absolutePath
-def signing = ['ANDROID_KEYSTORE_PATH', 'ANDROID_KEYSTORE_PASSWORD',
-               'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD'].collectEntries { name ->
+def signing = ['KEYSTORE_PATH', 'STORE_PASSWORD',
+               'KEY_ALIAS', 'KEY_PASSWORD'].collectEntries { name ->
     [(name): System.getenv(name)]
 }
 
@@ -35,12 +35,12 @@ android {
 
     signingConfigs {
         release {
-            if (signing.ANDROID_KEYSTORE_PATH) {
-                storeFile file(signing.ANDROID_KEYSTORE_PATH)
+            if (signing.KEYSTORE_PATH) {
+                storeFile file(signing.KEYSTORE_PATH)
             }
-            storePassword signing.ANDROID_KEYSTORE_PASSWORD
-            keyAlias signing.ANDROID_KEY_ALIAS
-            keyPassword signing.ANDROID_KEY_PASSWORD
+            storePassword signing.STORE_PASSWORD
+            keyAlias signing.KEY_ALIAS
+            keyPassword signing.KEY_PASSWORD
         }
     }
 
@@ -96,7 +96,7 @@ tasks.register('verifyReleaseSigning') {
         signing.each { name, value ->
             if (!value) throw new GradleException("Missing release signing environment variable: ${name}")
         }
-        if (!file(signing.ANDROID_KEYSTORE_PATH).isFile()) {
+        if (!file(signing.KEYSTORE_PATH).isFile()) {
             throw new GradleException('Release keystore file does not exist')
         }
     }
