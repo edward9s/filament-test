@@ -1,0 +1,79 @@
+name: Android test build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: filament-sdl3-test
+  cancel-in-progress: false
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Gradle 8.12.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.12.1'
+
+      - name: Install Android SDK, CMake and NDK
+        run: |
+          set -euo pipefail
+          sdkmanager="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -1)"
+          test -x "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$sdkmanager" "platforms;android-35" "build-tools;35.0.0" \
+            "cmake;3.22.1" "ndk;29.0.14206865"
+
+      - name: Fetch pinned prebuilt Filament and SDL3
+        run: bash scripts/download-deps.sh
+
+      - name: Build Android arm64 debug APK
+        working-directory: android
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Inspect resulting APK
+        run: |
+          set -euo pipefail
+          apk="android/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$apk"
+          unzip -l "$apk" | grep -F 'lib/arm64-v8a/libmain.so'
+          unzip -l "$apk" | grep -F 'lib/arm64-v8a/libSDL3.so'
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$apk"
+          cp "$apk" FilamentSDL3-test-arm64.apk
+
+      - name: Replace rolling test prerelease APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="test-build"
+          apk="FilamentSDL3-test-arm64.apk"
+          notes="Latest successful build: #${GITHUB_RUN_NUMBER}, commit ${GITHUB_SHA}.
+          SDL3 3.4.18 + Google Filament 1.78.1; arm64 debug-signed APK.
+          Workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" "$apk" --clobber --repo "$GITHUB_REPOSITORY"
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${tag}" \
+              -f sha="$GITHUB_SHA" -F force=true >/dev/null
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
+              --title "Filament + SDL3 test (latest #${GITHUB_RUN_NUMBER})" \
+              --notes "$notes" --prerelease --latest=false
+          else
+            gh release create "$tag" "$apk" --repo "$GITHUB_REPOSITORY" \
+              --title "Filament + SDL3 test (latest #${GITHUB_RUN_NUMBER})" \
+              --notes "$notes" --prerelease --latest=false --target "$GITHUB_SHA"
+          fi

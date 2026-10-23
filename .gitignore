@@ -1,0 +1,12 @@
+.deps/
+.gradle/
+android/.gradle/
+android/.idea/
+android/local.properties
+android/build/
+android/app/build/
+android/app/.cxx/
+android/app/libs/
+*.iml
+*.log
+.DS_Store
