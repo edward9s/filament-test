@@ -250,6 +250,9 @@ std::vector<Mesh> generate() {
     for(int x=-32;x<=32;x+=5) for(int z=-32;z<=27;z+=5) {
         float px=x+b.random.next(-2.2f,2.2f),pz=z+b.random.next(-2.2f,2.2f);
         if(std::abs(px)<6.5f && pz>-14 && pz<14)continue;
+        // Open the sunward edge of the clearing. Sun rays must reach the masonry,
+        // not terminate in an uninterrupted roof of pine branches.
+        if(px>2 && px<16 && pz>-1 && pz<18)continue;
         b.tree(px,pz,b.random.next(9,16));
     }
     for(int i=0;i<400;++i) {

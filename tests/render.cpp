@@ -1,4 +1,6 @@
 #include "Forest.h"
+#include "FpsHud.h"
+#include <chrono>
 #include <filament/Camera.h>
 #include <filament/Renderer.h>
 #include <filament/SwapChain.h>
@@ -20,18 +22,21 @@ int main() {
     c->setProjection(52,1280./720,.1,100,Camera::Fov::VERTICAL);
     c->setExposure(16,1.f/125,100);c->lookAt({3.07,3.16,9.54},{0,1.6,-3},{0,1,0});
     {
-        forest::Forest scene(*e,*s);scene.load([](const std::string& name){
+        forest::Forest scene(*e,*s);const auto read=[](const std::string& name){
             std::ifstream f(".generated/assets/"+name,std::ios::binary);
             if(!f)throw std::runtime_error(name);
             return std::vector<uint8_t>(std::istreambuf_iterator<char>(f),{});
-        });
+        };
+        scene.load(read);
+        forest::FpsHud hud(*e);hud.load(read);
         forest::Forest::configure(*v);
         DynamicResolutionOptions d;d.enabled=false;v->setDynamicResolutionOptions(d);
         std::vector<uint8_t> pixels(1280*720*4);
-        for(int i=0;i<8;++i) {
-            if(r->beginFrame(swap)) {r->render(v);
-                if(i==7)r->readPixels(0,0,1280,720,backend::PixelBufferDescriptor(pixels.data(),pixels.size(),backend::PixelDataFormat::RGBA,backend::PixelDataType::UBYTE));
+        for(int i=0;i<16;++i) {
+            if(r->beginFrame(swap)) {r->render(v);hud.render(*r,1280,720);
+                if(i==15)r->readPixels(0,0,1280,720,backend::PixelBufferDescriptor(pixels.data(),pixels.size(),backend::PixelDataFormat::RGBA,backend::PixelDataType::UBYTE));
                 r->endFrame();
+                hud.completedFrame(std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count());
             }
             e->flushAndWait();
         }

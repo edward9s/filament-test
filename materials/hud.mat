@@ -1,0 +1,47 @@
+material {
+    name : FpsHud,
+    shadingModel : unlit,
+    blending : transparent,
+    depthWrite : false,
+    depthCulling : false,
+    culling : none,
+    requires : [ uv0 ],
+    parameters : [ { type : float, name : fps } ]
+}
+fragment {
+    // Original 5x7 bitmap glyphs. No font package or secondary graphics context.
+    int rowBits(int code, int row) {
+        if (code == 0) return int[7](14,17,19,21,25,17,14)[row];
+        if (code == 1) return int[7](4,12,4,4,4,4,14)[row];
+        if (code == 2) return int[7](14,17,1,2,4,8,31)[row];
+        if (code == 3) return int[7](30,1,1,14,1,1,30)[row];
+        if (code == 4) return int[7](2,6,10,18,31,2,2)[row];
+        if (code == 5) return int[7](31,16,16,30,1,1,30)[row];
+        if (code == 6) return int[7](14,16,16,30,17,17,14)[row];
+        if (code == 7) return int[7](31,1,2,4,8,8,8)[row];
+        if (code == 8) return int[7](14,17,17,14,17,17,14)[row];
+        if (code == 9) return int[7](14,17,17,15,1,1,14)[row];
+        if (code == 10) return int[7](31,16,16,30,16,16,16)[row]; // F
+        if (code == 11) return int[7](30,17,17,30,16,16,16)[row]; // P
+        if (code == 12) return int[7](15,16,16,14,1,1,30)[row]; // S
+        if (code == 13) return row == 3 ? 14 : 0;
+        return 0;
+    }
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        ivec2 p = ivec2(floor(getUV0() * vec2(54.0,15.0))) - ivec2(6,4);
+        material.baseColor = vec4(vec3(0.025) * 0.8, 0.8);
+        if (p.x < 0 || p.x >= 42 || p.y < 0 || p.y >= 7) return;
+        int cell = p.x / 6;
+        int column = p.x % 6;
+        int value = int(clamp(floor(materialParams.fps + 0.5),0.0,999.0));
+        int code = 14;
+        if (cell < 3) code = 10 + cell;
+        if (cell == 4 && value >= 100) code = value / 100;
+        if (cell == 5 && value >= 10) code = (value / 10) % 10;
+        if (cell == 6) code = value % 10;
+        if (cell >= 4 && materialParams.fps < 0.0) code = 13;
+        if (column < 5 && (rowBits(code,p.y) & (1 << (4-column))) != 0)
+            material.baseColor = vec4(cell < 3 ? vec3(0.65,0.85,0.28) : vec3(1.0),1.0);
+    }
+}

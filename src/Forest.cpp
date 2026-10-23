@@ -99,21 +99,21 @@ void Forest::load(const AssetReader& read) {
     auto* reflection=ktxreader::Ktx1Reader::createTexture(&engine_,bundle.release(),false);
     if(!reflection) throw std::runtime_error("Failed to load environment");
     textures_.push_back(reflection);
-    light_=IndirectLight::Builder().reflections(reflection).irradiance(3,sh).intensity(18000).build(engine_);
+    light_=IndirectLight::Builder().reflections(reflection).irradiance(3,sh).intensity(9000).build(engine_);
     scene_.setIndirectLight(light_);
     auto skyData=read("forest/environment_skybox.ktx");
     auto* skyTexture=ktxreader::Ktx1Reader::createTexture(&engine_,
         new image::Ktx1Bundle(skyData.data(),uint32_t(skyData.size())),false);
     if(!skyTexture) throw std::runtime_error("Failed to load sky");
     textures_.push_back(skyTexture);
-    sky_=Skybox::Builder().environment(skyTexture).intensity(18000).build(engine_);scene_.setSkybox(sky_);
+    sky_=Skybox::Builder().environment(skyTexture).showSun(true).intensity(9000).build(engine_);scene_.setSkybox(sky_);
     auto sun=utils::EntityManager::get().create();entities_.push_back(sun);
     LightManager::ShadowOptions shadows;
     shadows.mapSize=2048;shadows.shadowCascades=3;
     shadows.cascadeSplitPositions[0]=.12f;shadows.cascadeSplitPositions[1]=.38f;
     shadows.shadowFar=65;
-    LightManager::Builder(LightManager::Type::SUN).color({1.0f,.88f,.70f}).intensity(65000)
-        .direction({-.55f,-.72f,-.42f}).sunAngularRadius(.8f)
+    LightManager::Builder(LightManager::Type::SUN).color({1.0f,.88f,.70f}).intensity(110000)
+        .direction({-.32f,-.82f,-.47f}).sunAngularRadius(.53f)
         .castShadows(true).shadowOptions(shadows).build(engine_,sun);
     scene_.addEntity(sun);
 }
@@ -128,10 +128,10 @@ void Forest::configure(View& view) {
     view.setTemporalAntiAliasingOptions(taa);
     AmbientOcclusionOptions ao;ao.enabled=true;ao.radius=.75f;ao.power=1.2f;ao.quality=QualityLevel::MEDIUM;
     view.setAmbientOcclusionOptions(ao);
-    BloomOptions bloom;bloom.enabled=true;bloom.strength=.045f;bloom.threshold=true;
+    BloomOptions bloom;bloom.enabled=true;bloom.strength=.065f;bloom.threshold=true;
     view.setBloomOptions(bloom);
-    FogOptions fog;fog.enabled=true;fog.distance=8;fog.density=.012f;fog.height=1;
-    fog.heightFalloff=.14f;fog.color={.36f,.43f,.44f};fog.inScatteringStart=12;fog.inScatteringSize=20;
+    FogOptions fog;fog.enabled=true;fog.distance=18;fog.density=.004f;fog.height=1;
+    fog.heightFalloff=.2f;fog.color={.36f,.43f,.44f};fog.inScatteringStart=12;fog.inScatteringSize=20;
     view.setFogOptions(fog);
     DynamicResolutionOptions resolution;resolution.enabled=true;resolution.minScale={.65f,.65f};
     resolution.maxScale={1,1};resolution.quality=QualityLevel::MEDIUM;

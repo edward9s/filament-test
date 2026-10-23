@@ -6,7 +6,8 @@ window/input/lifecycle and **Google Filament 1.78.1** for OpenGL ES rendering.
 ![Actual Filament OpenGL rendering on Linux llvmpipe](docs/forest-preview.jpg)
 
 This preview is an actual Filament render at 1280×720, using the same scene and materials.
-It is not an Android screenshot or an FPS benchmark.
+It is not an Android screenshot or an FPS benchmark. The visible FPS is measured on the
+Linux software renderer, not a phone.
 
 ## Scene
 
@@ -16,8 +17,12 @@ It is not an Android screenshot or an FPS benchmark.
 - Photograph-based 1K PBR ground, mossy stone and bark maps: albedo, OpenGL normals and AO/roughness/metalness.
 - Forest HDR environment, prefiltered reflections, diffuse spherical harmonics, warm directional sunlight,
   three shadow cascades, SSAO, height fog, restrained bloom, temporal anti-aliasing and animated foliage.
+- A sunward opening in the canopy lets direct sunlight reach the arches and stone path;
+  reduced ambient light and thinner fog preserve the contrast between sunlight and tree shadows.
+- Top-left FPS overlay, updated every half second from submitted frames. Skipped frames count
+  as elapsed time; backgrounding and surface changes reset the measurement.
 - Deterministic generation with spatial/material batching and frustum culling; approximately
-  405,000 triangles, 228 batches and 64 MiB of vertex/index data before GPU driver overhead.
+  386,000 triangles, 232 batches and 61 MiB of vertex/index data before GPU driver overhead.
   Texture data is about 53 MiB including mipmaps, plus environment maps and render targets.
 - One finger rotates the camera around the ruin; two fingers pinch to zoom. Mouse drag/wheel also work.
   This is an orbiting scene viewer; it does not include walking physics or collision detection.
@@ -57,7 +62,7 @@ release: using NDK r29 with this release previously caused an unresolved `__hash
 nor PRs trigger APK builds. Successful builds replace the same
 `test-build` prerelease / `FilamentSDL3-test-arm64.apk`. No Actions Artifacts are used.
 
-The workflow prepares all scene assets, checks geometry, builds the APK, verifies that the
+The workflow prepares all scene assets, checks geometry and FPS accounting, builds the APK, verifies that the
 materials/textures/environment maps are packaged, and verifies the APK signature before upload.
 The APK remains debug-signed; a changed runner debug key may require uninstalling an older build.
 
@@ -67,6 +72,8 @@ The APK remains debug-signed; a changed runner debug key may require uninstallin
 g++ -std=c++20 -O2 -Wall -Wextra -Werror -isystem .deps/host/filament/include \
   -Isrc tests/geometry.cpp src/Geometry.cpp -o /tmp/forest-geometry-test
 /tmp/forest-geometry-test
+g++ -std=c++20 -O2 -Wall -Wextra -Werror -Isrc tests/fps.cpp -o /tmp/forest-fps-test
+/tmp/forest-fps-test
 python3 scripts/check-apk.py android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
@@ -81,7 +88,8 @@ background/resume and screen off/on. Dynamic resolution can scale between 65% an
 - `src/main.cpp`: SDL event loop, orbit/pinch camera, Android surface recreation and suspension.
 - `src/Forest.*`: Filament meshes, textures, materials, environment, sunlight and resource ownership.
 - `src/Geometry.*`: deterministic scene generation, independent of SDL and the renderer.
-- `materials/`: PBR and animated subsurface foliage materials.
+- `src/FpsHud.*`, `src/FpsCounter.h`: Filament text overlay and frame-rate accounting.
+- `materials/`: PBR, animated subsurface foliage and FPS text materials.
 - `assets/sources.json`, `assets/CREDITS.md`: exact source hashes, credits and CC0 licensing.
 - `scripts/prepare-scene.py`, `scripts/check-apk.py`: asset preparation and packaging validation.
 - `android/`, `CMakeLists.txt`: existing SDLActivity / native Android build.
