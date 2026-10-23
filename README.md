@@ -71,7 +71,9 @@ nor PRs trigger APK builds. Successful builds replace the same
 `test-build` prerelease / `FilamentSDL3-test-arm64.apk`. No Actions Artifacts are used.
 
 The workflow prepares all scene assets, checks geometry FPS accounting and effects, builds the APK, verifies that the
-materials/textures/environment maps are packaged, and verifies the APK signature before upload.
+materials/textures/environment maps are packaged, and checks ZIP integrity, manifest parsing,
+16 KiB ZIP alignment and the APK signature before upload. Build logs include the signing
+certificate digest; release notes include the APK size and SHA-256 so downloads can be checked.
 The APK uses the release build type with debugging disabled and is signed with the supplied
 repository key. Signing settings are mandatory; missing settings fail the build.
 
@@ -91,6 +93,12 @@ For a local release build, set `KEYSTORE_PATH` to the absolute path of your exis
 keystore and export `STORE_PASSWORD`, `KEY_ALIAS`, and
 `KEY_PASSWORD` before running Gradle. Switching from the previous debug-signed APK
 to a different release key requires uninstalling that old APK first.
+
+If Android reports an invalid package, first check that the downloaded APK matches the release
+size and SHA-256. The build targets arm64-v8a, Android 8.0 or later. An earlier debug-signed
+installation cannot be updated by the release-signed APK; remove the old app before installing
+this release (removing an app clears its local data). For a precise installer error, use
+`adb install -r FilamentSDL3-test-arm64.apk`; keep its `INSTALL_*` message for diagnosis.
 
 ## Validation
 
