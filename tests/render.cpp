@@ -1,5 +1,6 @@
 #include "Forest.h"
 #include "FpsHud.h"
+#include "Effects.h"
 #include <chrono>
 #include <filament/Camera.h>
 #include <filament/Renderer.h>
@@ -11,7 +12,9 @@
 #include <algorithm>
 #include <stdexcept>
 // Optional Linux OpenGL smoke render. Run under Xvfb from the repository root.
-int main() {
+// Optional first argument freezes scene time (e.g. 0.3 for a strike, 1.8 for its pause).
+int main(int argc,char** argv) {
+    const float seconds=argc>1?std::stof(argv[1]):.3f;
     using namespace filament;
     Engine* e=Engine::create(backend::Backend::OPENGL);
     if(!e)throw std::runtime_error("OpenGL engine unavailable");
@@ -28,11 +31,13 @@ int main() {
             return std::vector<uint8_t>(std::istreambuf_iterator<char>(f),{});
         };
         scene.load(read);
+        forest::Effects effects(*e,*s);effects.load(read);
         forest::FpsHud hud(*e);hud.load(read);
         forest::Forest::configure(*v);
         DynamicResolutionOptions d;d.enabled=false;v->setDynamicResolutionOptions(d);
         std::vector<uint8_t> pixels(1280*720*4);
         for(int i=0;i<16;++i) {
+            scene.animate(seconds);effects.animate(seconds,{3.07f,3.16f,9.54f});
             if(r->beginFrame(swap)) {r->render(v);hud.render(*r,1280,720);
                 if(i==15)r->readPixels(0,0,1280,720,backend::PixelBufferDescriptor(pixels.data(),pixels.size(),backend::PixelDataFormat::RGBA,backend::PixelDataType::UBYTE));
                 r->endFrame();

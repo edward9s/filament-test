@@ -1,0 +1,55 @@
+#include "EffectsGeometry.h"
+#include <algorithm>
+#include <cassert>
+#include <cmath>
+#include <iostream>
+#include <limits>
+#include <stdexcept>
+
+int main() {
+    using namespace forest;
+    using namespace filament::math;
+    const float3 eye{3.07f,3.16f,9.54f};
+    const auto initial=effectMeshes(0,eye);
+    const auto same=effectMeshes(0,eye);
+    size_t count=0;
+    for(size_t i=0;i<initial.size();++i) {
+        assert(!initial[i].empty() && initial[i].size()%4==0);
+        count+=initial[i].size();
+        for(size_t j=0;j<initial[i].size();++j)assert(initial[i][j].position==same[i][j].position);
+    }
+    assert(count<3000); // Less than 1,500 triangles, with fixed buffer sizes.
+    std::array<bool,size_t(Effect::Count)> moved{};
+    for(float time:{.12f,.3f,.9f,1.6f,4.799f,4.801f,5.399f,5.401f,120.f,3600.f}) {
+        for(float3 camera:{eye,float3{0,14,-10},effectOrigin(Effect::Fire)}) {
+            const auto meshes=effectMeshes(time,camera);
+            for(size_t i=0;i<meshes.size();++i) {
+                assert(meshes[i].size()==initial[i].size());
+                for(size_t j=0;j<meshes[i].size();++j) {
+                    const auto& v=meshes[i][j];
+                    assert(std::isfinite(v.position.x)&&std::isfinite(v.position.y)&&std::isfinite(v.position.z));
+                    assert(v.uv.x>=0&&v.uv.x<=1&&v.uv.y>=0&&v.uv.y<=1);
+                    assert(std::isfinite(v.color.a)&&v.color.a>=0&&v.color.a<=1.01f);
+                    assert(std::abs(length(v.tangent)-1)<.001f);
+                    if(v.position!=initial[i][j].position)moved[i]=true;
+                }
+                for(size_t j=0;j<meshes[i].size();j+=4) {
+                    const auto a=meshes[i][j].position,b=meshes[i][j+1].position,d=meshes[i][j+3].position;
+                    assert(length(cross(b-a,d-a))>1e-7f);
+                }
+            }
+        }
+    }
+    for(bool changed:moved)assert(changed);
+    for(Effect a:{Effect::Fire,Effect::Blast,Effect::Water,Effect::Lightning,Effect::Smoke})
+        for(Effect b:{Effect::Fire,Effect::Blast,Effect::Water,Effect::Lightning,Effect::Smoke})
+            if(a!=b)assert(length(effectOrigin(a)-effectOrigin(b))>3);
+    assert(lightningPulse(.12f)>.9f&&lightningPulse(2)<.0001f);
+    assert(blastAge(5.41f)<.02f);
+    for(float time:{-1.f,std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity()}) {
+        bool rejected=false;
+        try{effectMeshes(time,eye);}catch(const std::invalid_argument&){rejected=true;}
+        assert(rejected);
+    }
+    std::cout<<count/4<<" animated quads, six fixed-size batches; determinism, topology, timing, separation and invalid inputs passed\n";
+}

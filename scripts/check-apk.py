@@ -4,7 +4,7 @@ import sys
 import zipfile
 
 with zipfile.ZipFile(sys.argv[1]) as apk:
-    for name in ['surface.filamat', 'foliage.filamat', 'canopy.filamat', 'hud.filamat', 'environment_ibl.ktx', 'environment_skybox.ktx']:
+    for name in ['surface.filamat', 'foliage.filamat', 'canopy.filamat', 'hud.filamat', 'effects.filamat', 'water.filamat', 'environment_ibl.ktx', 'environment_skybox.ktx']:
         if apk.getinfo('assets/forest/' + name).file_size == 0:
             raise RuntimeError(f'Empty asset: {name}')
     for material in ['ground', 'stone', 'bark']:
@@ -16,4 +16,4 @@ with zipfile.ZipFile(sys.argv[1]) as apk:
         raise RuntimeError('Invalid canopy texture size')
     if not apk.read('assets/forest/CREDITS.md'):
         raise RuntimeError('Missing asset credits')
-print('APK contains four materials, both environment maps, ten textures and credits.')
+print('APK contains six materials, both environment maps, ten textures and credits.')

@@ -26,6 +26,13 @@ Linux software renderer, not a phone.
   Texture data is about 53 MiB including mipmaps, plus environment maps and render targets.
 - One finger rotates the camera around the ruin; two fingers pinch to zoom. Mouse drag/wheel also work.
   This is an orbiting scene viewer; it does not include walking physics or collision detection.
+- Five separated effects: continuous fire and embers at the front left, a repeating explosion on
+  the left, an animated water jet and flowing sheet at the front right, branching double-strike
+  lightning on the right, and a dense drifting smoke column behind the ruins.
+  Fire, explosion and lightning illuminate nearby surfaces. Explosion repeats every 5.4 seconds;
+  lightning every 4.8 seconds. These are visual effects without damage or fluid physics.
+  The effects add 583 animated quads (1,166 triangles), six batches and about 126 KiB of vertex/index
+  data; buffer sizes stay fixed while positions update with time and the camera.
 - Assets are bundled in the APK. No network connection is needed while viewing the scene.
 
 The visual target is a realistic forest ruin. Architecture and vegetation are procedural geometry;
@@ -63,7 +70,7 @@ release: using NDK r29 with this release previously caused an unresolved `__hash
 nor PRs trigger APK builds. Successful builds replace the same
 `test-build` prerelease / `FilamentSDL3-test-arm64.apk`. No Actions Artifacts are used.
 
-The workflow prepares all scene assets, checks geometry and FPS accounting, builds the APK, verifies that the
+The workflow prepares all scene assets, checks geometry FPS accounting and effects, builds the APK, verifies that the
 materials/textures/environment maps are packaged, and verifies the APK signature before upload.
 The APK uses the release build type with debugging disabled and is signed with the supplied
 repository key. Signing settings are mandatory; missing settings fail the build.
@@ -93,6 +100,9 @@ g++ -std=c++20 -O2 -Wall -Wextra -Werror -isystem .deps/host/filament/include \
 /tmp/forest-geometry-test
 g++ -std=c++20 -O2 -Wall -Wextra -Werror -Isrc tests/fps.cpp -o /tmp/forest-fps-test
 /tmp/forest-fps-test
+g++ -std=c++20 -O2 -Wall -Wextra -Werror -isystem .deps/host/filament/include \
+  -Isrc tests/effects.cpp src/EffectsGeometry.cpp src/Geometry.cpp -o /tmp/forest-effects-test
+/tmp/forest-effects-test
 python3 scripts/check-apk.py android/app/build/outputs/apk/release/app-release.apk
 ```
 
@@ -107,8 +117,9 @@ background/resume and screen off/on. Dynamic resolution can scale between 65% an
 - `src/main.cpp`: SDL event loop, orbit/pinch camera, Android surface recreation and suspension.
 - `src/Forest.*`: Filament meshes, textures, materials, environment, sunlight and resource ownership.
 - `src/Geometry.*`: deterministic scene generation, independent of SDL and the renderer.
+- `src/Effects.*`, `src/EffectsGeometry.*`: effect rendering, light pulses and deterministic animation.
 - `src/FpsHud.*`, `src/FpsCounter.h`: Filament text overlay and frame-rate accounting.
-- `materials/`: PBR, animated subsurface foliage and FPS text materials.
+- `materials/`: PBR, animated foliage, FPS text, particle effects and flowing water materials.
 - `assets/sources.json`, `assets/CREDITS.md`: exact source hashes, credits and CC0 licensing.
 - `scripts/prepare-scene.py`, `scripts/check-apk.py`: asset preparation and packaging validation.
 - `android/`, `CMakeLists.txt`: existing SDLActivity / native Android build.

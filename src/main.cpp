@@ -2,6 +2,7 @@
 #include <SDL3/SDL_main.h>
 #include "Forest.h"
 #include "FpsHud.h"
+#include "Effects.h"
 #include <filament/Camera.h>
 #include <filament/Renderer.h>
 #include <filament/SwapChain.h>
@@ -38,6 +39,8 @@ public:
         forest::Forest::configure(*view_);
         forest_=std::make_unique<forest::Forest>(*engine_,*scene_);
         forest_->load(readAsset);
+        effects_=std::make_unique<forest::Effects>(*engine_,*scene_);
+        effects_->load(readAsset);
         hud_=std::make_unique<forest::FpsHud>(*engine_);
         hud_->load(readAsset);
         Renderer::FrameRateOptions rate;rate.interval=1;renderer_->setFrameRateOptions(rate);
@@ -47,6 +50,7 @@ public:
         if(!engine_)return;
         suspend();
         hud_.reset();
+        effects_.reset();
         forest_.reset();
         if(view_)engine_->destroy(view_);
         if(scene_)engine_->destroy(scene_);
@@ -103,10 +107,12 @@ public:
         view_->setViewport({0,0,uint32_t(width_),uint32_t(height_)});
         camera_->setProjection(52.0,double(width_)/height_,.1,100,Camera::Fov::VERTICAL);
         const double horizontal=distance_*std::cos(pitch_);
-        camera_->lookAt({horizontal*std::sin(yaw_),1.6+distance_*std::sin(pitch_),-3+horizontal*std::cos(yaw_)},
-            {0,1.6,-3},{0,1,0});
-        forest_->animate(float(SDL_GetTicks()-start_)*.001f);
+        const float3 eye{float(horizontal*std::sin(yaw_)),1.6f+distance_*std::sin(pitch_),float(-3+horizontal*std::cos(yaw_))};
+        camera_->lookAt(eye,{0,1.6,-3},{0,1,0});
+        const float seconds=float(SDL_GetTicks()-start_)*.001f;
+        forest_->animate(seconds);
         if(renderer_->beginFrame(swapChain_)) {
+            effects_->animate(seconds,eye);
             renderer_->render(view_);
             hud_->render(*renderer_,width_,height_);
             renderer_->endFrame();
@@ -132,6 +138,7 @@ private:
     ANativeWindow* native_=nullptr;
     utils::Entity cameraEntity_{};
     std::unique_ptr<forest::Forest> forest_;
+    std::unique_ptr<forest::Effects> effects_;
     std::unique_ptr<forest::FpsHud> hud_;
     std::map<SDL_FingerID,float2> fingers_;
     float yaw_=.24f,pitch_=.12f,distance_=13;

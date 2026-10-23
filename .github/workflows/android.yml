@@ -86,13 +86,16 @@ jobs:
           python3 -m pip install --disable-pip-version-check Pillow==11.3.0
           python3 scripts/prepare-scene.py
 
-      - name: Validate forest geometry
+      - name: Validate forest geometry and effects
         run: |
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -isystem .deps/host/filament/include \
             -Isrc tests/geometry.cpp src/Geometry.cpp -o /tmp/forest-geometry-test
           /tmp/forest-geometry-test
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -Isrc tests/fps.cpp -o /tmp/forest-fps-test
           /tmp/forest-fps-test
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -isystem .deps/host/filament/include \
+            -Isrc tests/effects.cpp src/EffectsGeometry.cpp src/Geometry.cpp -o /tmp/forest-effects-test
+          /tmp/forest-effects-test
 
       - name: Build signed Android arm64 release APK
         working-directory: android

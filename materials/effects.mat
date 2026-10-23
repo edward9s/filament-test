@@ -1,0 +1,54 @@
+material {
+    name : ForestEffects,
+    shadingModel : unlit,
+    blending : transparent,
+    depthWrite : false,
+    culling : none,
+    requires : [ uv0, color ],
+    parameters : [ { type : int, name : kind }, { type : float, name : time } ]
+}
+fragment {
+    float hash(vec2 p) { return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+    float noise(vec2 p) {
+        vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
+        return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);
+    }
+    float turbulence(vec2 p) {
+        return noise(p)*0.57+noise(p*2.03+7.0)*0.28+noise(p*4.11)*0.15;
+    }
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        vec2 uv=getUV0(),p=uv*2.0-1.0;
+        vec4 tint=getColor();
+        if(tint.a<0.003) discard;
+        float mask=0.0;
+        float emission=0.0;
+        vec3 color=tint.rgb;
+        if(materialParams.kind==0) {
+            float n=turbulence(uv*vec2(4,5)-vec2(0,materialParams.time*2.8));
+            float taper=1.0-uv.y*0.65;
+            mask=(1.0-smoothstep(0.15,1.0,length(vec2(p.x/taper,p.y))))*smoothstep(0.15,0.65,n);
+            emission=48000.0;
+        } else if(materialParams.kind==1) {
+            float n=turbulence(uv*5.0-vec2(materialParams.time*0.6));
+            mask=(1.0-smoothstep(0.35,1.0,length(p)))*smoothstep(0.1,0.7,n);
+            color*=mix(0.35,1.0,n);
+            emission=60000.0;
+        } else if(materialParams.kind==2) {
+            mask=1.0-smoothstep(0.15,1.0,length(p));
+        } else if(materialParams.kind==3) {
+            float core=1.0-smoothstep(0.03,0.18,abs(p.x));
+            mask=exp(-abs(p.x)*4.0);
+            color=mix(color,vec3(0.92,0.96,1.0),core);
+            emission=280000.0*(0.3+core*0.7);
+        } else {
+            float n=turbulence(uv*4.0+vec2(materialParams.time*0.12,-materialParams.time*0.2));
+            mask=(1.0-smoothstep(0.25,1.0,length(p)))*smoothstep(0.12,0.7,n);
+            color*=0.5+0.9*n+0.25*uv.y;
+        }
+        float alpha=clamp(mask*tint.a,0.0,1.0);
+        if(alpha<0.003) discard;
+        material.baseColor=vec4(emission>0.0?vec3(0.0):color*alpha,alpha);
+        material.emissive=vec4(color*emission*alpha,1.0);
+    }
+}
