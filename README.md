@@ -10,7 +10,7 @@ Minimal, native-C++ Android application using **SDL 3.4.18** (Android window, in
 
 ## Build (Android)
 
-Prerequisites: JDK 21, Android SDK platform 35, Android build-tools 35.0.0, NDK `29.0.14206865`, CMake 3.22.1, Gradle 8.12.1, curl, unzip, tar.
+Prerequisites: JDK 21, Android SDK platform 35, Android build-tools 35.0.0, NDK `30.0.16248370`, CMake 3.22.1, Gradle 8.12.1, curl, unzip, tar.
 
 ```sh
 bash scripts/download-deps.sh
@@ -20,6 +20,10 @@ gradle --no-daemon :app:assembleDebug
 ```
 
 Alternatively, visit **Actions → Android test build → Run workflow** and download the APK from the `test-build` prerelease after the job succeeds.
+
+## Native toolchain compatibility
+
+Filament **v1.78.1** is built with Android **NDK r30 (`30.0.16248370`)** as specified in upstream `build/common/versions`. The app must use the same NDK version: linking this distribution with NDK r29 failed with the missing `std::__ndk1::__hash_memory` symbol. Keep the `ndkVersion`, workflow's `sdkmanager` version, and upstream Filament release aligned when upgrading.
 
 ## What the application does
 

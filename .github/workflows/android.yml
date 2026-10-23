@@ -36,7 +36,16 @@ jobs:
           test -x "$sdkmanager"
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
           "$sdkmanager" "platforms;android-35" "build-tools;35.0.0" \
-            "cmake;3.22.1" "ndk;29.0.14206865"
+            "cmake;3.22.1" "ndk;30.0.16248370"
+
+      - name: Verify NDK matches pinned Filament native release
+        run: |
+          set -euo pipefail
+          # Filament v1.78.1 build/common/versions: GITHUB_NDK_VERSION=30.0.16248370.
+          # Mixing this prebuilt libc++ ABI with NDK r29 causes missing __hash_memory.
+          ndk="$ANDROID_HOME/ndk/30.0.16248370"
+          test -x "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++"
+          echo "Filament 1.78.1 / NDK $(cat "$ndk/source.properties" | grep '^Pkg.Revision')"
 
       - name: Fetch pinned prebuilt Filament and SDL3
         run: bash scripts/download-deps.sh
