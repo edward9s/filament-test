@@ -114,6 +114,12 @@ g++ -std=c++20 -O2 -Wall -Wextra -Werror -isystem .deps/host/filament/include \
 python3 scripts/check-apk.py android/app/build/outputs/apk/release/app-release.apk
 ```
 
+Particle fragment checks run the actual effect shader code in a surfaceless OpenGL ES 3 context
+with the mobile `mediump` default. Fire, explosion, spray, lightning and smoke must produce visible
+pixels at short and long running times. Noise uses high-precision integer hashing; emission is
+exposed in high precision before being stored in Filament's material inputs, avoiding FP16 overflow.
+Run `python3 tests/particles.py` on Linux with Mesa EGL installed.
+
 Geometry checks cover determinism, finite coordinates/UVs/tangents, normalized tangent frames,
 index bounds, degenerate triangles, ground winding, layer presence and mobile geometry budgets.
 Shader compilation uses the exact engine release. These checks do not establish Android runtime
