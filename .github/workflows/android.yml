@@ -50,6 +50,19 @@ jobs:
       - name: Fetch pinned prebuilt Filament and SDL3
         run: bash scripts/download-deps.sh
 
+      - name: Prepare forest textures, environment and materials
+        run: |
+          python3 -m pip install --disable-pip-version-check Pillow==11.3.0
+          python3 scripts/prepare-scene.py
+
+      - name: Validate forest geometry
+        run: |
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -isystem .deps/host/filament/include \
+            -Isrc tests/geometry.cpp src/Geometry.cpp -o /tmp/forest-geometry-test
+          /tmp/forest-geometry-test
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -Isrc tests/fps.cpp -o /tmp/forest-fps-test
+          /tmp/forest-fps-test
+
       - name: Build Android arm64 debug APK
         working-directory: android
         run: gradle --no-daemon --stacktrace :app:assembleDebug
@@ -61,6 +74,7 @@ jobs:
           test -s "$apk"
           unzip -l "$apk" | grep -F 'lib/arm64-v8a/libmain.so'
           unzip -l "$apk" | grep -F 'lib/arm64-v8a/libSDL3.so'
+          python3 scripts/check-apk.py "$apk"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$apk"
           cp "$apk" FilamentSDL3-test-arm64.apk
 

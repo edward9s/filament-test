@@ -24,7 +24,7 @@ endif()
 # Official SDL3 Android AAR provides native libSDL3.so and headers via Prefab.
 find_package(SDL3 REQUIRED CONFIG)
 
-add_library(main SHARED src/main.cpp)
+add_library(main SHARED src/main.cpp src/Forest.cpp src/Geometry.cpp src/FpsHud.cpp)
 target_include_directories(main PRIVATE "${FILAMENT_SDK}/include")
 target_compile_options(main PRIVATE -Wall -Wextra)
 

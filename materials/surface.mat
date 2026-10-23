@@ -1,0 +1,22 @@
+material {
+    name : ForestSurface,
+    shadingModel : lit,
+    requires : [ uv0, color ],
+    parameters : [
+        { type : sampler2d, name : albedo },
+        { type : sampler2d, name : normalMap },
+        { type : sampler2d, name : arm }
+    ]
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        vec2 uv = getUV0();
+        material.normal = normalize(texture(materialParams_normalMap, uv).xyz * 2.0 - 1.0);
+        prepareMaterial(material);
+        vec3 maps = texture(materialParams_arm, uv).rgb;
+        material.baseColor = vec4(texture(materialParams_albedo, uv).rgb * getColor().rgb, 1.0);
+        material.roughness = clamp(maps.g, 0.48, 1.0);
+        material.ambientOcclusion = maps.r;
+        material.metallic = 0.0;
+    }
+}

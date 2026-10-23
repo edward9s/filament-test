@@ -19,7 +19,7 @@ if [[ ! -s "$ROOT/.deps/filament/lib/arm64-v8a/libfilament.a" ||
       -o "$TMP/filament.tgz"
     echo "${FILAMENT_SHA256}  $TMP/filament.tgz" | sha256sum -c -
     mkdir -p "$TMP/filament-extract"
-    tar -xzf "$TMP/filament.tgz" -C "$TMP/filament-extract"
+    tar --no-same-owner -xzf "$TMP/filament.tgz" -C "$TMP/filament-extract"
     engine_h="$(find "$TMP/filament-extract" -type f -path '*/include/filament/Engine.h' -print -quit)"
     if [[ -z "$engine_h" ]]; then
         echo "Cannot find Filament headers in official archive" >&2
