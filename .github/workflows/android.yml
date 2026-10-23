@@ -24,6 +24,29 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - name: Prepare release signing key
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing repository secret: $name"
+              exit 1
+            fi
+          done
+          umask 077
+          key="$RUNNER_TEMP/filament-release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$key"
+          if ! keytool -list -keystore "$key" -storepass:env ANDROID_KEYSTORE_PASSWORD \
+              -alias "$ANDROID_KEY_ALIAS" >/dev/null 2>&1; then
+            echo '::error::Cannot open release keystore with the supplied password and alias'
+            exit 1
+          fi
+
       - name: Gradle 8.12.1
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -63,14 +86,19 @@ jobs:
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -Isrc tests/fps.cpp -o /tmp/forest-fps-test
           /tmp/forest-fps-test
 
-      - name: Build Android arm64 debug APK
+      - name: Build signed Android arm64 release APK
         working-directory: android
-        run: gradle --no-daemon --stacktrace :app:assembleDebug
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/filament-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: gradle --no-daemon --stacktrace :app:assembleRelease
 
       - name: Inspect resulting APK
         run: |
           set -euo pipefail
-          apk="android/app/build/outputs/apk/debug/app-debug.apk"
+          apk="android/app/build/outputs/apk/release/app-release.apk"
           test -s "$apk"
           unzip -l "$apk" | grep -F 'lib/arm64-v8a/libmain.so'
           unzip -l "$apk" | grep -F 'lib/arm64-v8a/libSDL3.so'
@@ -86,7 +114,7 @@ jobs:
           tag="test-build"
           apk="FilamentSDL3-test-arm64.apk"
           notes="Latest successful build: #${GITHUB_RUN_NUMBER}, commit ${GITHUB_SHA}.
-          SDL3 3.4.18 + Google Filament 1.78.1; arm64 debug-signed APK.
+          SDL3 3.4.18 + Google Filament 1.78.1; arm64 release APK signed with the configured repository key.
           Workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$tag" "$apk" --clobber --repo "$GITHUB_REPOSITORY"
@@ -100,3 +128,7 @@ jobs:
               --title "Filament + SDL3 test (latest #${GITHUB_RUN_NUMBER})" \
               --notes "$notes" --prerelease --latest=false --target "$GITHUB_SHA"
           fi
+
+      - name: Remove release signing key
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/filament-release.jks"
