@@ -40,6 +40,6 @@ target_link_libraries(main PRIVATE
     "-Wl,--start-group"
     ${FILAMENT_STATIC_LIBS}
     "-Wl,--end-group"
-    android log EGL GLESv3 z
+    android log EGL GLESv3 z dl
 )
 target_link_options(main PRIVATE "-Wl,--gc-sections")
