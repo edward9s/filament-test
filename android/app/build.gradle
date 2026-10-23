@@ -76,7 +76,7 @@ dependencies {
 tasks.register('verifySceneAssets') {
     doLast {
         def root = file('../../.generated/assets/forest')
-        def names = ['surface.filamat', 'foliage.filamat', 'canopy.filamat', 'hud.filamat', 'canopy.rgba', 'environment_ibl.ktx', 'environment_skybox.ktx']
+        def names = ['surface.filamat', 'foliage.filamat', 'canopy.filamat', 'hud.filamat', 'effects.filamat', 'water.filamat', 'canopy.rgba', 'environment_ibl.ktx', 'environment_skybox.ktx']
         ['ground', 'stone', 'bark'].each { material ->
             ['albedo', 'normal', 'arm'].each { map -> names.add("${material}_${map}.rgba") }
         }

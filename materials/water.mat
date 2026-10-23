@@ -1,0 +1,26 @@
+material {
+    name : ForestWater,
+    shadingModel : lit,
+    blending : transparent,
+    doubleSided : true,
+    depthWrite : false,
+    requires : [ uv0, color ],
+    parameters : [ { type : float, name : time } ]
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        vec2 uv=getUV0();
+        float t=materialParams.time;
+        float a=uv.y*30.0-t*4.2+sin(uv.x*15.0+t)*0.4;
+        float b=uv.x*25.0+uv.y*19.0-t*3.1;
+        material.normal=normalize(vec3(cos(b)*0.12,cos(a)*0.18,1.0));
+        prepareMaterial(material);
+        float foam=pow(max(0.0,sin(a)*sin(b)),12.0)*0.18;
+        float alpha=getColor().a;
+        if(alpha>0.6) alpha*=smoothstep(0.0,0.12,uv.x)*(1.0-smoothstep(0.88,1.0,uv.x));
+        material.baseColor=vec4(mix(getColor().rgb,vec3(0.72,0.85,0.82),foam)*alpha,alpha);
+        material.roughness=0.24;
+        material.metallic=0.0;
+        material.reflectance=0.35;
+    }
+}

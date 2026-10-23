@@ -86,13 +86,16 @@ jobs:
           python3 -m pip install --disable-pip-version-check Pillow==11.3.0
           python3 scripts/prepare-scene.py
 
-      - name: Validate forest geometry
+      - name: Validate forest geometry and effects
         run: |
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -isystem .deps/host/filament/include \
             -Isrc tests/geometry.cpp src/Geometry.cpp -o /tmp/forest-geometry-test
           /tmp/forest-geometry-test
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -Isrc tests/fps.cpp -o /tmp/forest-fps-test
           /tmp/forest-fps-test
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -isystem .deps/host/filament/include \
+            -Isrc tests/effects.cpp src/EffectsGeometry.cpp src/Geometry.cpp -o /tmp/forest-effects-test
+          /tmp/forest-effects-test
 
       - name: Build signed Android arm64 release APK
         working-directory: android
@@ -108,10 +111,14 @@ jobs:
           set -euo pipefail
           apk="android/app/build/outputs/apk/release/app-release.apk"
           test -s "$apk"
+          tools="$ANDROID_HOME/build-tools/35.0.0"
+          unzip -tqq "$apk"
+          "$tools/aapt2" dump badging "$apk"
+          "$tools/zipalign" -c -P 16 4 "$apk"
           unzip -l "$apk" | grep -F 'lib/arm64-v8a/libmain.so'
           unzip -l "$apk" | grep -F 'lib/arm64-v8a/libSDL3.so'
           python3 scripts/check-apk.py "$apk"
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$apk"
+          "$tools/apksigner" verify --verbose --print-certs "$apk"
           cp "$apk" FilamentSDL3-test-arm64.apk
 
       - name: Replace rolling test prerelease APK
@@ -121,9 +128,13 @@ jobs:
           set -euo pipefail
           tag="test-build"
           apk="FilamentSDL3-test-arm64.apk"
+          digest="$(sha256sum "$apk" | cut -d ' ' -f1)"
+          size="$(stat -c '%s' "$apk")"
           notes="Latest successful build: #${GITHUB_RUN_NUMBER}, commit ${GITHUB_SHA}.
           SDL3 3.4.18 + Google Filament 1.78.1; arm64 release APK signed with the configured repository key.
-          Workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          Workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          APK size: ${size} bytes.
+          SHA-256: ${digest}"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$tag" "$apk" --clobber --repo "$GITHUB_REPOSITORY"
             gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${tag}" \

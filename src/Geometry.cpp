@@ -260,6 +260,7 @@ std::vector<Mesh> generate() {
         float x=b.random.next(-spread,spread),z=b.random.next(-spread-4,spread);
         if(std::abs(x)<1.5f && z>-13 && z<15)continue;
         if(std::abs(std::abs(x)-3.6f)<.65f && z>-11 && z<1)continue;
+        if(x>3.2f && x<5.1f && z>3.5f && z<7.4f)continue;
         b.fern(x,z,b.random.next(.65f,1.6f));
     }
     for(int i=0;i<24;++i) {
@@ -272,6 +273,7 @@ std::vector<Mesh> generate() {
     for(int i=0;i<650;++i) {
         float x=b.random.next(-11,11),z=b.random.next(-15,12);
         if(std::abs(x)<1.4f || (std::abs(std::abs(x)-3.6f)<.65f && z<1 && z>-11))continue;
+        if(x>3.2f && x<5.1f && z>3.5f && z<7.4f)continue;
         float3 p{x,elevation(x,z),z};
         for(int j=0;j<7;++j) {
             float a=b.random.next(0,2*pi),h=b.random.next(.18f,.48f);
@@ -287,6 +289,8 @@ std::vector<Mesh> generate() {
             b.leaf(p,{.22f*std::cos(a),-.16f,.22f*std::sin(a)},.12f,{.025f,.085f,.018f,.3f});
         }
     }
+    // Raised spring feeding the separate flowing-water display.
+    b.rock({3.5f,elevation(3.5f,3.5f)+.45f,3.5f},{.55f,.8f,.55f});
     std::vector<Mesh> result;
     for(auto& [key,m]:b.batches) result.push_back(std::move(m));
     return result;
