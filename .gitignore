@@ -10,3 +10,5 @@ android/app/libs/
 *.iml
 *.log
 .DS_Store
+.generated/
+__pycache__/

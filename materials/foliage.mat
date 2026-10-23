@@ -1,0 +1,27 @@
+material {
+    name : ForestFoliage,
+    shadingModel : subsurface,
+    doubleSided : true,
+    requires : [ uv0, color ],
+    parameters : [ { type : float, name : time } ]
+}
+vertex {
+    void materialVertex(inout MaterialVertexInputs material) {
+        float phase = getPosition().x * 0.71 + getPosition().z * 0.49;
+        float wind = sin(materialParams.time * 1.2 + phase) + 0.35 * sin(materialParams.time * 2.6 + phase * 2.0);
+        material.worldPosition.xz += vec2(0.06, 0.025) * wind * material.color.a;
+    }
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        vec2 uv = getUV0();
+        float vein = smoothstep(0.015, 0.045, abs(uv.x - 0.5));
+        float ribs = 0.94 + 0.06 * sin((uv.y + abs(uv.x - 0.5) * 0.6) * 100.0);
+        material.baseColor = vec4(getColor().rgb * mix(1.25, ribs, vein), 1.0);
+        material.roughness = 0.68;
+        material.subsurfacePower = 5.0;
+        material.subsurfaceColor = getColor().rgb * 0.65;
+        material.thickness = 0.45;
+    }
+}

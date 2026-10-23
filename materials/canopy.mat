@@ -1,0 +1,27 @@
+material {
+    name : PineCanopy,
+    shadingModel : subsurface,
+    blending : masked,
+    maskThreshold : 0.4,
+    doubleSided : true,
+    requires : [ uv0, color ],
+    parameters : [ { type : sampler2d, name : albedo }, { type : float, name : time } ]
+}
+vertex {
+    void materialVertex(inout MaterialVertexInputs material) {
+        float phase = getPosition().x * 0.71 + getPosition().z * 0.49;
+        float wind = sin(materialParams.time * 1.2 + phase) + 0.35 * sin(materialParams.time * 2.6 + phase * 2.0);
+        material.worldPosition.xz += vec2(0.06, 0.025) * wind;
+    }
+}
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        vec4 pine = texture(materialParams_albedo, getUV0());
+        material.baseColor = pine;
+        material.roughness = 0.8;
+        material.subsurfacePower = 5.0;
+        material.subsurfaceColor = pine.rgb * 0.55;
+        material.thickness = 0.3;
+    }
+}
