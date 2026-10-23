@@ -3,6 +3,10 @@ plugins {
 }
 
 def filamentSdk = file('../../.deps/filament').absolutePath
+def signing = ['KEYSTORE_PATH', 'STORE_PASSWORD',
+               'KEY_ALIAS', 'KEY_PASSWORD'].collectEntries { name ->
+    [(name): System.getenv(name)]
+}
 
 android {
     namespace 'com.edward9s.filamentsdl3test'
@@ -29,11 +33,25 @@ android {
         main.assets.srcDirs += ['../../.generated/assets']
     }
 
+    signingConfigs {
+        release {
+            if (signing.KEYSTORE_PATH) {
+                storeFile file(signing.KEYSTORE_PATH)
+            }
+            storePassword signing.STORE_PASSWORD
+            keyAlias signing.KEY_ALIAS
+            keyPassword signing.KEY_PASSWORD
+        }
+    }
+
     buildTypes {
         debug {
             debuggable true
         }
         release {
+            debuggable false
+            jniDebuggable false
+            signingConfig signingConfigs.release
             minifyEnabled false
         }
     }
@@ -71,3 +89,16 @@ tasks.register('verifySceneAssets') {
     }
 }
 tasks.named('preBuild').configure { dependsOn 'verifySceneAssets' }
+
+// Release builds require the supplied key; never fall back to a debug or new key.
+tasks.register('verifyReleaseSigning') {
+    doLast {
+        signing.each { name, value ->
+            if (!value) throw new GradleException("Missing release signing environment variable: ${name}")
+        }
+        if (!file(signing.KEYSTORE_PATH).isFile()) {
+            throw new GradleException('Release keystore file does not exist')
+        }
+    }
+}
+tasks.matching { it.name == 'preReleaseBuild' }.configureEach { dependsOn 'verifyReleaseSigning' }

@@ -12,3 +12,5 @@ android/app/libs/
 .DS_Store
 .generated/
 __pycache__/
+*.jks
+*.keystore

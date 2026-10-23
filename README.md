@@ -35,17 +35,18 @@ quality and frame rate must be evaluated on the target phone.
 ## Build
 
 JDK 21, Android SDK 35 / build-tools 35.0.0, **NDK 30.0.16248370**, CMake 3.22.1,
-Gradle 8.12.1, Python 3, curl, tar, unzip, and Linux x86-64 for the asset tools:
+Gradle 8.12.1, Python 3, curl, tar, unzip, and Linux x86-64 for the asset tools.
+Set the release signing environment variables described below before building:
 
 ```sh
 bash scripts/download-deps.sh
 python3 -m pip install Pillow==11.3.0
 python3 scripts/prepare-scene.py
 cd android
-gradle --no-daemon :app:assembleDebug
+gradle --no-daemon :app:assembleRelease
 ```
 
-APK: `android/app/build/outputs/apk/debug/app-debug.apk`.
+APK: `android/app/build/outputs/apk/release/app-release.apk`.
 
 `prepare-scene.py` downloads SHA-256-pinned CC0 source maps and the matching official Filament
 host tools, compiles materials with `matc`, and prefilters the HDR environment with `cmgen`.
@@ -64,7 +65,25 @@ nor PRs trigger APK builds. Successful builds replace the same
 
 The workflow prepares all scene assets, checks geometry and FPS accounting, builds the APK, verifies that the
 materials/textures/environment maps are packaged, and verifies the APK signature before upload.
-The APK remains debug-signed; a changed runner debug key may require uninstalling an older build.
+The APK uses the release build type with debugging disabled and is signed with the supplied
+repository key. Signing settings are mandatory; missing settings fail the build.
+
+Configure these **Actions Secrets** using your existing keystore:
+
+| Secret | Value |
+| --- | --- |
+| `KEYSTORE_BASE64` | Base64-encoded keystore file |
+| `STORE_PASSWORD` | Keystore password |
+| `KEY_ALIAS` | Signing key alias |
+| `KEY_PASSWORD` | Signing key password |
+
+The workflow restores the keystore only in the runner's temporary directory and removes it
+at job end. It never generates a key. The workflow references the repository Secret names listed above.
+
+For a local release build, set `KEYSTORE_PATH` to the absolute path of your existing
+keystore and export `STORE_PASSWORD`, `KEY_ALIAS`, and
+`KEY_PASSWORD` before running Gradle. Switching from the previous debug-signed APK
+to a different release key requires uninstalling that old APK first.
 
 ## Validation
 
@@ -74,7 +93,7 @@ g++ -std=c++20 -O2 -Wall -Wextra -Werror -isystem .deps/host/filament/include \
 /tmp/forest-geometry-test
 g++ -std=c++20 -O2 -Wall -Wextra -Werror -Isrc tests/fps.cpp -o /tmp/forest-fps-test
 /tmp/forest-fps-test
-python3 scripts/check-apk.py android/app/build/outputs/apk/debug/app-debug.apk
+python3 scripts/check-apk.py android/app/build/outputs/apk/release/app-release.apk
 ```
 
 Geometry checks cover determinism, finite coordinates/UVs/tangents, normalized tangent frames,
