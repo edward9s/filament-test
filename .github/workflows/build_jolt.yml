@@ -78,11 +78,12 @@ jobs:
               else:
                   found = {asset["name"] for asset in release.get("assets", []) if asset.get("size", 0) > 0}
                   if found != expected:
-                      raise SystemExit(
-                          "Jolt release assets are incomplete or unexpected: "
+                      build = True
+                      reason = (
+                          "Rebuild incomplete Jolt release: "
                           f"expected {sorted(expected)}, found {sorted(found)}"
                       )
-                  if "BUILD_PROFILE=ipo-gpu-v1" not in body.splitlines():
+                  elif "BUILD_PROFILE=ipo-gpu-v1" not in body.splitlines():
                       build = True
                       reason = "Rebuild Jolt with enabled LTO and platform GPU compute"
                   else:
@@ -222,7 +223,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The vendor environment script references optional variables (e.g.
+          # PKG_CONFIG_PATH) without defaults; source it with nounset disabled.
+          set +u
           source "$PWD/vulkan_sdk/setup-env.sh"
+          set -u
           command -v dxc
           command -v spirv-cross
           xcrun -sdk macosx -f metal
