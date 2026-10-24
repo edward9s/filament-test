@@ -9,6 +9,9 @@
 namespace forest {
 using namespace filament;
 using namespace filament::math;
+namespace {
+constexpr Effect lightEffects[]={Effect::Fire,Effect::Blast,Effect::Lightning};
+}
 Effects::~Effects() {
     for(auto entity:lights_) {scene_.remove(entity);engine_.destroy(entity);utils::EntityManager::get().destroy(entity);}
     for(auto& batch:batches_) {
@@ -55,12 +58,17 @@ void Effects::load(const AssetReader& read) {
         if(result!=RenderableManager::Builder::Success)throw std::runtime_error("Cannot create effects renderable");
         scene_.addEntity(b.entity);
     }
-    const Effect kinds[]={Effect::Fire,Effect::Blast,Effect::Lightning};
-    const float3 colors[]={{1,.32f,.06f},{1,.5f,.1f},{.45f,.65f,1}};
+    // The sunny outdoor exposure requires strong local light to tint nearby masonry.
+    // Keep the influence local; shadow maps for three animated point lights are costly on mobile.
+    const float3 colors[]={{1,.27f,.055f},{1,.46f,.12f},{.55f,.72f,1}};
+    const float heights[]={.95f,1.5f,2.7f};
+    const float radii[]={7.5f,9.f,8.5f};
     for(size_t i=0;i<lights_.size();++i) {
         lights_[i]=utils::EntityManager::get().create();
-        LightManager::Builder(LightManager::Type::POINT).position(effectOrigin(kinds[i])+float3{0,1,0})
-            .color(colors[i]).intensity(0).falloff(6).castShadows(false).build(engine_,lights_[i]);
+        LightManager::Builder(LightManager::Type::POINT)
+            .position(effectOrigin(lightEffects[i])+float3{0,heights[i],0})
+            .color(colors[i]).intensity(0.f).falloff(radii[i]).castShadows(false)
+            .build(engine_,lights_[i]);
         scene_.addEntity(lights_[i]);
     }
     animate(0,{3.07f,3.16f,9.54f});
@@ -84,8 +92,7 @@ void Effects::animate(float seconds,float3 eye) {
         b.material->setParameter("time",seconds);
     }
     auto& manager=engine_.getLightManager();
-    manager.setIntensity(manager.getInstance(lights_[0]),9500.f*(1+.13f*std::sin(seconds*13)+.09f*std::sin(seconds*23)));
-    manager.setIntensity(manager.getInstance(lights_[1]),80000.f*std::exp(-blastAge(seconds)*7));
-    manager.setIntensity(manager.getInstance(lights_[2]),55000.f*lightningPulse(seconds));
+    for(size_t i=0;i<lights_.size();++i)
+        manager.setIntensity(manager.getInstance(lights_[i]),effectLightIntensity(lightEffects[i],seconds));
 }
 }
