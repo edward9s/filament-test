@@ -3,6 +3,7 @@ plugins {
 }
 
 def filamentSdk = file('../../.deps/filament').absolutePath
+def sdl3Sdk = file('../../.deps/sdl3').absolutePath
 def signing = ['KEYSTORE_PATH', 'STORE_PASSWORD',
                'KEY_ALIAS', 'KEY_PASSWORD'].collectEntries { name ->
     [(name): System.getenv(name)]
@@ -24,13 +25,14 @@ android {
         }
         externalNativeBuild {
             cmake {
-                arguments "-DFILAMENT_SDK=${filamentSdk}"
+                arguments "-DFILAMENT_SDK=${filamentSdk}", "-DSDL3_SDK=${sdl3Sdk}"
             }
         }
     }
 
     sourceSets {
         main.assets.srcDirs += ['../../.generated/assets']
+        main.java.srcDirs += ['../../.deps/sdl3/android/java']
     }
 
     signingConfigs {
@@ -56,20 +58,12 @@ android {
         }
     }
 
-    buildFeatures {
-        prefab true
-    }
-
     externalNativeBuild {
         cmake {
             path '../../CMakeLists.txt'
             version '3.22.1'
         }
     }
-}
-
-dependencies {
-    implementation files('libs/SDL3.aar')
 }
 
 // Missing assets are a build error, not a blank screen on the phone.
