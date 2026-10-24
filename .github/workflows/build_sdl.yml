@@ -93,9 +93,37 @@ jobs:
               print(f"SDL3 upstream: {version}\n\n{reason}", file=summary)
           PY
 
+  prepare:
+    name: Prepare the single SDL3 dependency release
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: sdl3-static
+    steps:
+      - name: Create an empty release if necessary
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > /dev/null 2> release-error.txt; then
+            echo "Reusing the existing dependency release"
+          elif grep -q 'HTTP 404' release-error.txt; then
+            # Keep a lower version until all platform assets have been verified.
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "SDL3 static SDK (build pending)" \
+              --notes 'SDL_VERSION=0.0.0' \
+              --prerelease --latest=false
+          else
+            cat release-error.txt >&2
+            exit 1
+          fi
+
   build:
     name: Build ${{ matrix.platform }}
-    needs: check
+    needs: [check, prepare]
     if: needs.check.outputs.build == 'true'
     strategy:
       fail-fast: false
@@ -158,16 +186,15 @@ jobs:
           archs="$(xcrun lipo -archs stage/lib/libSDL3.a)"
           [[ " $archs " == *" arm64 "* && " $archs " == *" x86_64 "* ]]
 
-      - name: Set up Android SDK
-        if: matrix.platform == 'android-arm64-v8a'
-        uses: android-actions/setup-android@v3
-
       - name: Install matching Android NDK
         if: matrix.platform == 'android-arm64-v8a'
         shell: bash
         run: |
           set -euo pipefail
-          sdkmanager "ndk;30.0.16248370"
+          sdkmanager="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -1)"
+          test -x "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$sdkmanager" "ndk;30.0.16248370"
           test -f "$ANDROID_HOME/ndk/30.0.16248370/build/cmake/android.toolchain.cmake"
 
       - name: Build static SDL3 for Android arm64
@@ -212,13 +239,22 @@ jobs:
           tar -czf "dist/SDL3-$VERSION-$PLATFORM-static.tar.gz" -C stage .
           test -s "dist/SDL3-$VERSION-$PLATFORM-static.tar.gz"
 
-      - name: Transfer SDK to publishing job
-        uses: actions/upload-artifact@v4
-        with:
-          name: sdl3-${{ matrix.platform }}
-          path: dist/*.tar.gz
-          if-no-files-found: error
-          retention-days: 1
+      - name: Upload static SDK directly to GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLATFORM: ${{ matrix.platform }}
+          RELEASE_TAG: sdl3-static
+        run: |
+          set -euo pipefail
+          file="SDL3-$VERSION-$PLATFORM-static.tar.gz"
+          if [[ "$PLATFORM" == macos-* ]]; then
+            (cd dist && shasum -a 256 "$file" > "$file.sha256")
+          else
+            (cd dist && sha256sum "$file" > "$file.sha256")
+          fi
+          gh release upload "$RELEASE_TAG" "dist/$file" "dist/$file.sha256" \
+            --clobber --repo "$GITHUB_REPOSITORY"
 
   publish:
     name: Publish single rolling SDL3 dependency release
@@ -232,17 +268,16 @@ jobs:
       RELEASE_TAG: sdl3-static
       VERSION: ${{ needs.check.outputs.version }}
     steps:
-      - name: Collect all three platforms
-        uses: actions/download-artifact@v4
-        with:
-          pattern: sdl3-*
-          path: dist
-          merge-multiple: true
-
-      - name: Verify packages and calculate checksums
+      - name: Download and verify all three platform archives
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p dist
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "SDL3-$VERSION-*-static.tar.gz" --dir dist
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "SDL3-$VERSION-*-static.tar.gz.sha256" --dir dist
+
           cd dist
           files=(
             "SDL3-$VERSION-windows-x64-msvc-static.tar.gz"
@@ -251,9 +286,12 @@ jobs:
           )
           for file in "${files[@]}"; do
             test -s "$file"
+            test -s "$file.sha256"
+            sha256sum -c "$file.sha256"
             tar -tzf "$file" >/dev/null
           done
           [[ "$(find . -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 3 ]]
+          [[ "$(find . -maxdepth 1 -type f -name '*.sha256' | wc -l)" -eq 3 ]]
           sha256sum "${files[@]}" > SHA256SUMS
 
       - name: Publish assets under the same fixed release tag
@@ -274,16 +312,10 @@ jobs:
           This is a separate rolling dependency release; the test-build APK release is preserved.
           EOF
 
-          shopt -s nullglob
-          assets=(dist/*.tar.gz dist/SHA256SUMS)
-          [[ "${#assets[@]}" -eq 4 ]]
-
-          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > existing-release.json 2> release-error.txt; then
-            # Upload all fresh archives before replacing the checksum file.
-            gh release upload "$RELEASE_TAG" dist/*.tar.gz \
-              --clobber --repo "$GITHUB_REPOSITORY"
-            gh release upload "$RELEASE_TAG" dist/SHA256SUMS \
-              --clobber --repo "$GITHUB_REPOSITORY"
+          # Publish the checksum manifest after all platforms have passed.
+          gh release upload "$RELEASE_TAG" dist/SHA256SUMS \
+            --clobber --repo "$GITHUB_REPOSITORY"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > existing-release.json
 
             jq -r --arg version "$VERSION" '
               .assets[] |
@@ -304,17 +336,5 @@ jobs:
               --title "SDL3 $VERSION static SDK (Windows, macOS, Android)" \
               --notes-file release-notes.txt \
               --prerelease --latest=false
-          elif grep -q 'HTTP 404' release-error.txt; then
-            gh release create "$RELEASE_TAG" "${assets[@]}" \
-              --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
-              --title "SDL3 $VERSION static SDK (Windows, macOS, Android)" \
-              --notes-file release-notes.txt \
-              --prerelease --latest=false
-          else
-            cat release-error.txt >&2
-            exit 1
-          fi
-
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --json name,tagName,assets --jq '{name,tagName,assets:[.assets[].name]}'
