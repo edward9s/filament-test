@@ -31,7 +31,7 @@ if(NOT EXISTS "${SDL3_SDK}/lib/libSDL3.a" OR
     message(FATAL_ERROR "Invalid SDL3_SDK: missing static archive, headers or CMake config.")
 endif()
 find_package(SDL3 REQUIRED CONFIG COMPONENTS SDL3-static
-    PATHS "${SDL3_SDK}" NO_DEFAULT_PATH)
+    PATHS "${SDL3_SDK}" NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
 
 add_library(main SHARED src/main.cpp src/Forest.cpp src/Geometry.cpp src/FpsHud.cpp src/Effects.cpp src/EffectsGeometry.cpp)
 target_include_directories(main PRIVATE "${FILAMENT_SDK}/include")
