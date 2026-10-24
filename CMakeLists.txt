@@ -21,6 +21,11 @@ if(NOT EXISTS "${FILAMENT_LIB_DIR}/libfilament.a")
     message(FATAL_ERROR "Invalid FILAMENT_SDK: missing ${FILAMENT_LIB_DIR}/libfilament.a")
 endif()
 
+# Both backends must be present: do not silently ship an OpenGL-only build.
+if(NOT EXISTS "${FILAMENT_LIB_DIR}/libbluevk.a")
+    message(FATAL_ERROR "Filament SDK has no Vulkan loader library: ${FILAMENT_LIB_DIR}/libbluevk.a")
+endif()
+
 # Require our repository-prebuilt static SDK, never substitute a dynamic system SDL3.
 if(NOT DEFINED SDL3_SDK OR SDL3_SDK STREQUAL "")
     message(FATAL_ERROR "Set SDL3_SDK to the unpacked SDL3 static SDK.")
