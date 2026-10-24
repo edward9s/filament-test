@@ -81,8 +81,12 @@ jobs:
                           "Jolt release assets are incomplete or unexpected: "
                           f"expected {sorted(expected)}, found {sorted(found)}"
                       )
-                  build = False
-                  reason = f"Jolt {version} and all four assets already exist"
+                  if "BUILD_PROFILE=ipo-gpu-v1" not in body.splitlines():
+                      build = True
+                      reason = "Rebuild Jolt with enabled LTO and platform GPU compute"
+                  else:
+                      build = False
+                      reason = f"Jolt {version} and all four assets already exist"
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               print(f"version={version}", file=output)
@@ -149,6 +153,16 @@ jobs:
           test -s source/Build/CMakeLists.txt
           test -s source/LICENSE
 
+      - name: Require Windows DX12 shader compiler
+        if: matrix.platform == 'windows-x64-msvc'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Jolt locates dxc in the Windows SDK rather than ordinary PATH.
+          dxc="$(find 'C:/Program Files (x86)/Windows Kits/10/bin' -type f -iname dxc.exe -print | sort -V | tail -1)"
+          test -s "$dxc" || { echo "::error::Windows SDK dxc.exe is missing"; exit 1; }
+          echo "DXC_COMPILER=$dxc" >> "$GITHUB_ENV"
+
       - name: Build Windows x64 MSVC static library
         if: matrix.platform == 'windows-x64-msvc'
         shell: bash
@@ -158,11 +172,12 @@ jobs:
             -G "Visual Studio 17 2022" -A x64 \
             -DUSE_STATIC_MSVC_RUNTIME_LIBRARY=OFF \
             -DJPH_BUILD_SHARED_LIBS=OFF \
-            -DINTERPROCEDURAL_OPTIMIZATION=OFF \
+            -DINTERPROCEDURAL_OPTIMIZATION=ON \
             -DGENERATE_DEBUG_SYMBOLS=OFF \
             -DENABLE_ALL_WARNINGS=OFF \
-            -DJPH_USE_DX12=OFF -DJPH_USE_VK=OFF \
-            -DJPH_USE_MTL=OFF -DJPH_USE_CPU_COMPUTE=OFF \
+            -DDXC_COMPILER="$DXC_COMPILER" \
+            -DJPH_USE_DX12=ON -DJPH_USE_VK=OFF \
+            -DJPH_USE_MTL=OFF -DJPH_USE_CPU_COMPUTE=ON \
             -DUSE_SSE4_1=OFF -DUSE_SSE4_2=OFF \
             -DUSE_AVX=OFF -DUSE_AVX2=OFF \
             -DUSE_LZCNT=OFF -DUSE_TZCNT=OFF \
@@ -173,23 +188,39 @@ jobs:
           cmake --build build --config Distribution --target Jolt --parallel 4
           cmake --install build --config Distribution --prefix "$PWD/stage"
           test -s stage/lib/Jolt.lib
+          test -s source/Jolt/Shaders/TestCompute.dxil
+          grep -Fxq 'INTERPROCEDURAL_OPTIMIZATION:BOOL=ON' build/CMakeCache.txt
+
+      - name: Install Metal compiler and Vulkan shader tools
+        if: matrix.platform == 'macos-universal'
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -downloadComponent MetalToolchain
+          bash source/Build/macos_install_vulkan_sdk.sh "$PWD/vulkan_sdk"
+          test -s vulkan_sdk/setup-env.sh
 
       - name: Build macOS universal static library
         if: matrix.platform == 'macos-universal'
         shell: bash
         run: |
           set -euo pipefail
+          source "$PWD/vulkan_sdk/setup-env.sh"
+          command -v dxc
+          command -v spirv-cross
+          xcrun -sdk macosx -f metal
+          xcrun -sdk macosx -f metallib
           cmake -S source/Build -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Distribution \
             -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
             -DJPH_BUILD_SHARED_LIBS=OFF \
-            -DINTERPROCEDURAL_OPTIMIZATION=OFF \
+            -DINTERPROCEDURAL_OPTIMIZATION=ON \
             -DGENERATE_DEBUG_SYMBOLS=OFF \
             -DENABLE_ALL_WARNINGS=OFF \
             -DJPH_USE_DX12=OFF -DJPH_USE_VK=OFF \
-            -DJPH_USE_MTL=OFF -DJPH_USE_CPU_COMPUTE=OFF \
+            -DJPH_USE_MTL=ON -DJPH_USE_CPU_COMPUTE=ON \
             -DUSE_SSE4_1=OFF -DUSE_SSE4_2=OFF \
             -DUSE_AVX=OFF -DUSE_AVX2=OFF \
             -DUSE_LZCNT=OFF -DUSE_TZCNT=OFF \
@@ -202,6 +233,8 @@ jobs:
           test -s stage/lib/libJolt.a
           archs="$(xcrun lipo -archs stage/lib/libJolt.a)"
           [[ " $archs " == *" arm64 "* && " $archs " == *" x86_64 "* ]]
+          test -s source/Jolt/Shaders/Jolt.metallib
+          grep -Fxq 'INTERPROCEDURAL_OPTIMIZATION:BOOL=ON' build/CMakeCache.txt
 
       - name: Install matching Android NDK
         if: matrix.platform == 'android-arm64-v8a'
@@ -214,23 +247,39 @@ jobs:
           "$sdkmanager" "ndk;30.0.16248370"
           test -f "$ANDROID_HOME/ndk/30.0.16248370/build/cmake/android.toolchain.cmake"
 
+      - name: Install Vulkan SDK and DXC for Android shaders
+        if: matrix.platform == 'android-arm64-v8a'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash source/Build/ubuntu24_install_vulkan_sdk.sh
+          command -v glslc
+          command -v dxc
+          test -x "$(dirname "$(command -v glslc)")/dxc"
+
       - name: Build Android ARM64 static library
         if: matrix.platform == 'android-arm64-v8a'
         shell: bash
         run: |
           set -euo pipefail
+          ndk="$ANDROID_HOME/ndk/30.0.16248370"
+          test -s "$ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/vulkan/vulkan.h"
+          test -s "$ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/26/libvulkan.so"
           cmake -S source/Build -B build -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/30.0.16248370/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-26 \
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
             -DCMAKE_BUILD_TYPE=Distribution \
+            -DVulkan_INCLUDE_DIR="$ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include" \
+            -DVulkan_LIBRARY="$ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/26/libvulkan.so" \
+            -DVulkan_GLSLC_EXECUTABLE="$(command -v glslc)" \
             -DJPH_BUILD_SHARED_LIBS=OFF \
-            -DINTERPROCEDURAL_OPTIMIZATION=OFF \
+            -DINTERPROCEDURAL_OPTIMIZATION=ON \
             -DGENERATE_DEBUG_SYMBOLS=OFF \
             -DENABLE_ALL_WARNINGS=OFF \
-            -DJPH_USE_DX12=OFF -DJPH_USE_VK=OFF \
-            -DJPH_USE_MTL=OFF -DJPH_USE_CPU_COMPUTE=OFF \
+            -DJPH_USE_DX12=OFF -DJPH_USE_VK=ON \
+            -DJPH_USE_MTL=OFF -DJPH_USE_CPU_COMPUTE=ON \
             -DTARGET_UNIT_TESTS=OFF -DTARGET_HELLO_WORLD=OFF \
             -DTARGET_PERFORMANCE_TEST=OFF -DTARGET_SAMPLES=OFF \
             -DTARGET_VIEWER=OFF
@@ -238,6 +287,8 @@ jobs:
           cmake --install build --prefix "$PWD/stage"
           test -s stage/lib/libJolt.a
           test -s stage/include/Jolt/Jolt.h
+          test -s source/Jolt/Shaders/TestCompute.spv
+          grep -Fxq 'INTERPROCEDURAL_OPTIMIZATION:BOOL=ON' build/CMakeCache.txt
 
       - name: Package and check static SDK
         shell: bash
@@ -246,8 +297,14 @@ jobs:
         run: |
           set -euo pipefail
           cp source/LICENSE stage/Jolt-LICENSE.txt
-          printf 'JOLT_VERSION=%s\nPLATFORM=%s\nCONFIG=Distribution\nLTO=OFF\nGPU_COMPUTE=OFF\n' \
-            "$VERSION" "$PLATFORM" > stage/BUILD-INFO.txt
+          case "$PLATFORM" in
+            windows-*) backend=DX12 ;;
+            macos-*) backend=Metal ;;
+            android-*) backend=Vulkan ;;
+            *) echo "::error::Unsupported platform $PLATFORM"; exit 1 ;;
+          esac
+          printf 'JOLT_VERSION=%s\nPLATFORM=%s\nCONFIG=Distribution\nLTO=ON\nGPU_COMPUTE=%s\nCPU_COMPUTE=ON\n' \
+            "$VERSION" "$PLATFORM" "$backend" > stage/BUILD-INFO.txt
           test -s stage/include/Jolt/Jolt.h
           test -s stage/lib/cmake/Jolt/JoltConfig.cmake
           if find stage -type f \( -name '*.so' -o -name '*.dylib' -o -name '*.dll' \) -print -quit | grep -q .; then
@@ -320,13 +377,14 @@ jobs:
           set -euo pipefail
           cat > release-notes.txt <<EOF
           JOLT_VERSION=$VERSION
+          BUILD_PROFILE=ipo-gpu-v1
 
           Official Jolt Physics source: https://github.com/jrouwe/JoltPhysics/releases/tag/v$VERSION
 
-          C++ static SDKs, Distribution build (no LTO, no GPU compute):
-          - Windows x64 / MSVC: Jolt.lib
-          - macOS universal (x86_64 + arm64): libJolt.a
-          - Android arm64-v8a / API 26 / NDK 30.0.16248370: libJolt.a
+          C++ static SDKs, Distribution build (LTO enabled, CPU compute enabled):
+          - Windows x64 / MSVC: Jolt.lib + DX12 GPU compute shaders
+          - macOS universal (x86_64 + arm64): libJolt.a + Metal GPU compute shaders
+          - Android arm64-v8a / API 26 / NDK 30.0.16248370: libJolt.a + Vulkan GPU compute shaders
 
           Each archive contains the matching public headers, CMake export, license and build metadata.
           SHA256SUMS covers the three archives. No Actions Artifacts are used.
