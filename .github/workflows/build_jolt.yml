@@ -2,6 +2,7 @@ name: Build Jolt static SDK
 
 on:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: write
@@ -196,7 +197,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xcodebuild -downloadComponent MetalToolchain
+          xcodebuild -version
+          # Xcode 16 typically bundles metal; only newer Xcode supports
+          # -downloadComponent. Never call that flag on unsupported Xcode.
+          if ! xcrun -sdk macosx metal --version >/dev/null 2>&1; then
+            xcode_help="$(xcodebuild -help 2>&1 || true)"
+            if grep -q -- '-downloadComponent' <<< "$xcode_help"; then
+              xcodebuild -downloadComponent metalToolchain
+            else
+              echo "::error::Metal compiler missing and this Xcode cannot install MetalToolchain"
+              exit 1
+            fi
+          fi
+          xcrun -sdk macosx metal --version
+          xcrun -sdk macosx -f metallib
+
+          # Jolt needs dxc + spirv-cross from the full LunarG Vulkan SDK
+          # to translate HLSL shaders to a Metal library.
           bash source/Build/macos_install_vulkan_sdk.sh "$PWD/vulkan_sdk"
           test -s vulkan_sdk/setup-env.sh
 
