@@ -78,7 +78,9 @@ jobs:
           test -x "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++"
           echo "Filament 1.78.1 / NDK $(cat "$ndk/source.properties" | grep '^Pkg.Revision')"
 
-      - name: Fetch pinned prebuilt Filament and SDL3
+      - name: Fetch prebuilt Filament and repository SDL3 static SDK
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: bash scripts/download-deps.sh
 
       - name: Prepare forest textures, environment and materials
@@ -122,7 +124,15 @@ jobs:
           "$tools/aapt2" dump badging "$apk"
           "$tools/zipalign" -c -P 16 4 "$apk"
           unzip -l "$apk" | grep -F 'lib/arm64-v8a/libmain.so'
-          unzip -l "$apk" | grep -F 'lib/arm64-v8a/libSDL3.so'
+          if unzip -Z1 "$apk" | grep -Fxq 'lib/arm64-v8a/libSDL3.so'; then
+            echo "::error::Unexpected libSDL3.so: SDL3 must be statically linked"
+            exit 1
+          fi
+          native="android/app/build/intermediates/cxx/Release"
+          main_so="$(find "$native" -type f -path '*/obj/arm64-v8a/libmain.so' -print -quit)"
+          test -s "$main_so"
+          ndk_bin="$ANDROID_HOME/ndk/30.0.16248370/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          "$ndk_bin/llvm-readelf" --dyn-syms "$main_so" | grep -E '[[:space:]]JNI_OnLoad([[:space:]]|$)'
           python3 scripts/check-apk.py "$apk"
           "$tools/apksigner" verify --verbose --print-certs "$apk"
           cp "$apk" FilamentSDL3-test-arm64.apk
@@ -136,8 +146,10 @@ jobs:
           apk="FilamentSDL3-test-arm64.apk"
           digest="$(sha256sum "$apk" | cut -d ' ' -f1)"
           size="$(stat -c '%s' "$apk")"
+          sdl_version="$(sed -n 's/^SDL_VERSION=//p' .deps/sdl3/BUILD-INFO.txt)"
+          [[ "$sdl_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           notes="Latest successful build: #${GITHUB_RUN_NUMBER}, commit ${GITHUB_SHA}.
-          SDL3 3.4.18 + Google Filament 1.78.1; arm64 release APK signed with the configured repository key.
+          SDL3 ${sdl_version} (repository static SDK) + Google Filament 1.78.1; arm64 release APK signed with the configured repository key.
           Workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           APK size: ${size} bytes.
           SHA-256: ${digest}"
