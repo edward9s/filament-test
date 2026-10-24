@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Official, immutable upstream release assets: no library source builds.
+# Use official prebuilt Filament and the repository SDL3 static SDK.
 FILAMENT_VERSION=1.78.1
-SDL_VERSION=3.4.18
 FILAMENT_SHA256=4346d06e0312b64a11fb26cbc387cd0b4687165c9cabaeeaa6f855fc6d44160f
-SDL_SHA256=e09e4d6593335d089ba124375e8b8abd0fd75173dffcd2c17012b45af121d4e9
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-mkdir -p "$ROOT/.deps" "$ROOT/android/app/libs"
+mkdir -p "$ROOT/.deps"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -32,19 +30,55 @@ fi
 
 test -s "$ROOT/.deps/filament/lib/arm64-v8a/libfilament.a"
 
-if [[ ! -s "$ROOT/android/app/libs/SDL3.aar" ]]; then
-    curl -fL --retry 3 \
-      "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VERSION}/SDL3-devel-${SDL_VERSION}-android.zip" \
-      -o "$TMP/sdl.zip"
-    echo "${SDL_SHA256}  $TMP/sdl.zip" | sha256sum -c -
-    mkdir -p "$TMP/sdl-extract"
-    unzip -q "$TMP/sdl.zip" -d "$TMP/sdl-extract"
-    aar="$(find "$TMP/sdl-extract" -type f -name 'SDL3*.aar' -print -quit)"
-    if [[ -z "$aar" ]]; then
-        echo "Cannot find SDL3 Android AAR in official archive" >&2
+
+# Consume only the SDK published by build_sdl.yml; never rebuild SDL or use its AAR.
+SDL_REPOSITORY="${GITHUB_REPOSITORY:-edward9s/filament-test}"
+SDL_RELEASE=sdl3-static
+command -v gh >/dev/null || { echo "gh CLI is required for the SDL3 release." >&2; exit 1; }
+
+gh api "repos/$SDL_REPOSITORY/releases/tags/$SDL_RELEASE" --jq '.body' > "$TMP/sdl-release.txt"
+SDL_VERSION="$(sed -n 's/^SDL_VERSION=//p' "$TMP/sdl-release.txt")"
+if [[ ! "$SDL_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "SDL3 release has no valid SDL_VERSION metadata." >&2
+    exit 1
+fi
+
+SDL_DIR="$ROOT/.deps/sdl3"
+sdl_ready() {
+    [[ -s "$SDL_DIR/lib/libSDL3.a" ]] &&
+    [[ -s "$SDL_DIR/include/SDL3/SDL.h" ]] &&
+    [[ -s "$SDL_DIR/lib/cmake/SDL3/SDL3Config.cmake" ]] &&
+    [[ -s "$SDL_DIR/android/java/org/libsdl/app/SDLActivity.java" ]] &&
+    grep -Fxq "SDL_VERSION=$SDL_VERSION" "$SDL_DIR/BUILD-INFO.txt"
+}
+
+if ! sdl_ready; then
+    archive="SDL3-$SDL_VERSION-android-arm64-v8a-static.tar.gz"
+    gh release download "$SDL_RELEASE" --repo "$SDL_REPOSITORY" \
+        --pattern "$archive" --dir "$TMP"
+    gh release download "$SDL_RELEASE" --repo "$SDL_REPOSITORY" \
+        --pattern SHA256SUMS --dir "$TMP"
+
+    expected="$(awk -v name="$archive" '$2 == name {print $1}' "$TMP/SHA256SUMS")"
+    if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+        echo "Missing or invalid SHA-256 for $archive." >&2
         exit 1
     fi
-    cp "$aar" "$ROOT/android/app/libs/SDL3.aar"
+    actual="$(sha256sum "$TMP/$archive" | cut -d' ' -f1)"
+    if [[ "$actual" != "$expected" ]]; then
+        echo "SHA-256 mismatch for $archive." >&2
+        exit 1
+    fi
+
+    mkdir -p "$TMP/sdl-sdk"
+    tar --no-same-owner -xzf "$TMP/$archive" -C "$TMP/sdl-sdk"
+    test -s "$TMP/sdl-sdk/lib/libSDL3.a"
+    test -s "$TMP/sdl-sdk/include/SDL3/SDL.h"
+    test -s "$TMP/sdl-sdk/lib/cmake/SDL3/SDL3Config.cmake"
+    test -s "$TMP/sdl-sdk/android/java/org/libsdl/app/SDLActivity.java"
+    grep -Fxq "SDL_VERSION=$SDL_VERSION" "$TMP/sdl-sdk/BUILD-INFO.txt"
+    grep -Fxq "PLATFORM=android-arm64-v8a" "$TMP/sdl-sdk/BUILD-INFO.txt"
+    rm -rf "$SDL_DIR"
+    mv "$TMP/sdl-sdk" "$SDL_DIR"
 fi
-unzip -tq "$ROOT/android/app/libs/SDL3.aar" >/dev/null
-echo "Ready: Filament ${FILAMENT_VERSION} native arm64, SDL3 ${SDL_VERSION} Android AAR"
+echo "Ready: Filament $FILAMENT_VERSION native arm64, SDL3 $SDL_VERSION static arm64 (repository Release)"
