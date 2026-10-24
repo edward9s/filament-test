@@ -85,8 +85,14 @@ It fails on download/hash errors; Gradle fails if scene assets have not been pre
 files live in `.generated/` and downloaded dependencies in `.deps/`; neither is committed.
 The first asset preparation downloads roughly 73 MiB of tools and 12 MiB of source assets.
 
-Filament and SDL use official prebuilt distributions. The NDK must match the pinned Filament
-release: using NDK r29 with this release previously caused an unresolved `__hash_memory` symbol.
+Filament uses the official prebuilt Android native SDK. SDL3 is statically linked from
+this repository's `sdl3-static` Release. `download-deps.sh` checks the release metadata
+and SHA-256, then installs its static library, headers, CMake package and matching SDL
+Android Java sources in `.deps/sdl3/`. Because this is a private repository, local builds
+require authenticated `gh` CLI access (or a `GH_TOKEN`); GitHub Actions supplies
+`github.token`. A missing or invalid SDK fails the build; there is no AAR fallback.
+The NDK must match the pinned Filament release: using NDK r29 with this release
+previously caused an unresolved `__hash_memory` symbol.
 
 ## GitHub Actions
 
@@ -94,8 +100,10 @@ release: using NDK r29 with this release previously caused an unresolved `__hash
 nor PRs trigger APK builds. Successful builds replace the same
 `test-build` prerelease / `FilamentSDL3-test-arm64.apk`. No Actions Artifacts are used.
 
-The workflow prepares all scene assets, checks geometry FPS accounting and effects, builds the APK, verifies that the
-materials/textures/environment maps are packaged, and checks ZIP integrity, manifest parsing,
+The workflow downloads the SDL3 static SDK, prepares all scene assets, checks geometry FPS
+accounting and effects, builds the APK, verifies the exported `JNI_OnLoad` and absence of
+`libSDL3.so`, checks packaged materials/textures/environment maps, and verifies ZIP integrity,
+manifest parsing,
 16 KiB ZIP alignment and the APK signature before upload. Build logs include the signing
 certificate digest; release notes include the APK size and SHA-256 so downloads can be checked.
 The APK uses the release build type with debugging disabled and is signed with the supplied
