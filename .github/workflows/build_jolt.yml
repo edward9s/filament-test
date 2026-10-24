@@ -1,0 +1,362 @@
+name: Build Jolt static SDK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: jolt-static-release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check upstream and published Jolt versions
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build: ${{ steps.version.outputs.build }}
+    steps:
+      - name: Compare latest stable Jolt with repository release
+        id: version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: jolt-static
+        run: |
+          set -euo pipefail
+          upstream_tag="$(gh api repos/jrouwe/JoltPhysics/releases/latest --jq '.tag_name')"
+          if [[ ! "$upstream_tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "::error::Unexpected upstream Jolt tag: $upstream_tag"
+            exit 1
+          fi
+          export VERSION="${BASH_REMATCH[1]}"
+
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > release.json 2> release.err; then
+            export RELEASE_EXISTS=true
+          elif grep -q 'HTTP 404' release.err; then
+            export RELEASE_EXISTS=false
+          else
+            cat release.err >&2
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          upstream = tuple(map(int, version.split(".")))
+          expected = {
+              f"Jolt-{version}-windows-x64-msvc-static.tar.gz",
+              f"Jolt-{version}-macos-universal-static.tar.gz",
+              f"Jolt-{version}-android-arm64-v8a-static.tar.gz",
+              "SHA256SUMS",
+          }
+
+          if os.environ["RELEASE_EXISTS"] == "false":
+              build = True
+              reason = "No Jolt dependency release exists"
+          else:
+              release = json.loads(Path("release.json").read_text())
+              body = release.get("body") or ""
+              match = re.search(r"^JOLT_VERSION=(\d+\.\d+\.\d+)$", body, re.MULTILINE)
+              if not match:
+                  raise SystemExit("Jolt release is missing JOLT_VERSION metadata")
+              current_version = match.group(1)
+              current = tuple(map(int, current_version.split(".")))
+              if current > upstream:
+                  build = False
+                  reason = f"Published Jolt {current_version} is newer than upstream {version}; refusing downgrade"
+              elif current < upstream:
+                  build = True
+                  reason = f"Upgrade Jolt {current_version} -> {version}"
+              else:
+                  found = {asset["name"] for asset in release.get("assets", []) if asset.get("size", 0) > 0}
+                  if found != expected:
+                      raise SystemExit(
+                          "Jolt release assets are incomplete or unexpected: "
+                          f"expected {sorted(expected)}, found {sorted(found)}"
+                      )
+                  build = False
+                  reason = f"Jolt {version} and all four assets already exist"
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"version={version}", file=output)
+              print(f"build={str(build).lower()}", file=output)
+          print(reason)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              print(f"Jolt upstream: {version}\n\n{reason}", file=summary)
+          PY
+
+  prepare:
+    name: Prepare the single Jolt dependency release
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: jolt-static
+    steps:
+      - name: Create release only when absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > /dev/null 2> release.err; then
+            echo "Reusing the existing Jolt dependency release"
+          elif grep -q 'HTTP 404' release.err; then
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Jolt static SDK (build pending)" \
+              --notes 'JOLT_VERSION=0.0.0' \
+              --prerelease --latest=false
+          else
+            cat release.err >&2
+            exit 1
+          fi
+
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: [check, prepare]
+    if: needs.check.outputs.build == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64-msvc
+            runner: windows-2022
+          - platform: macos-universal
+            runner: macos-15
+          - platform: android-arm64-v8a
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - name: Download official Jolt tagged source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source
+          curl -fLsS --retry 3 \
+            "https://github.com/jrouwe/JoltPhysics/archive/refs/tags/v$VERSION.tar.gz" \
+            -o jolt-source.tar.gz
+          tar -xzf jolt-source.tar.gz -C source --strip-components=1
+          test -s source/Build/CMakeLists.txt
+          test -s source/LICENSE
+
+      - name: Build Windows x64 MSVC static library
+        if: matrix.platform == 'windows-x64-msvc'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S source/Build -B build \
+            -G "Visual Studio 17 2022" -A x64 \
+            -DUSE_STATIC_MSVC_RUNTIME_LIBRARY=OFF \
+            -DJPH_BUILD_SHARED_LIBS=OFF \
+            -DINTERPROCEDURAL_OPTIMIZATION=OFF \
+            -DGENERATE_DEBUG_SYMBOLS=OFF \
+            -DENABLE_ALL_WARNINGS=OFF \
+            -DJPH_USE_DX12=OFF -DJPH_USE_VK=OFF \
+            -DJPH_USE_MTL=OFF -DJPH_USE_CPU_COMPUTE=OFF \
+            -DUSE_SSE4_1=OFF -DUSE_SSE4_2=OFF \
+            -DUSE_AVX=OFF -DUSE_AVX2=OFF \
+            -DUSE_LZCNT=OFF -DUSE_TZCNT=OFF \
+            -DUSE_F16C=OFF -DUSE_FMADD=OFF \
+            -DTARGET_UNIT_TESTS=OFF -DTARGET_HELLO_WORLD=OFF \
+            -DTARGET_PERFORMANCE_TEST=OFF -DTARGET_SAMPLES=OFF \
+            -DTARGET_VIEWER=OFF
+          cmake --build build --config Distribution --target Jolt --parallel 4
+          cmake --install build --config Distribution --prefix "$PWD/stage"
+          test -s stage/lib/Jolt.lib
+
+      - name: Build macOS universal static library
+        if: matrix.platform == 'macos-universal'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S source/Build -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Distribution \
+            -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DJPH_BUILD_SHARED_LIBS=OFF \
+            -DINTERPROCEDURAL_OPTIMIZATION=OFF \
+            -DGENERATE_DEBUG_SYMBOLS=OFF \
+            -DENABLE_ALL_WARNINGS=OFF \
+            -DJPH_USE_DX12=OFF -DJPH_USE_VK=OFF \
+            -DJPH_USE_MTL=OFF -DJPH_USE_CPU_COMPUTE=OFF \
+            -DUSE_SSE4_1=OFF -DUSE_SSE4_2=OFF \
+            -DUSE_AVX=OFF -DUSE_AVX2=OFF \
+            -DUSE_LZCNT=OFF -DUSE_TZCNT=OFF \
+            -DUSE_F16C=OFF -DUSE_FMADD=OFF \
+            -DTARGET_UNIT_TESTS=OFF -DTARGET_HELLO_WORLD=OFF \
+            -DTARGET_PERFORMANCE_TEST=OFF -DTARGET_SAMPLES=OFF \
+            -DTARGET_VIEWER=OFF
+          cmake --build build --target Jolt --parallel 4
+          cmake --install build --prefix "$PWD/stage"
+          test -s stage/lib/libJolt.a
+          archs="$(xcrun lipo -archs stage/lib/libJolt.a)"
+          [[ " $archs " == *" arm64 "* && " $archs " == *" x86_64 "* ]]
+
+      - name: Install matching Android NDK
+        if: matrix.platform == 'android-arm64-v8a'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -1)"
+          test -x "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$sdkmanager" "ndk;30.0.16248370"
+          test -f "$ANDROID_HOME/ndk/30.0.16248370/build/cmake/android.toolchain.cmake"
+
+      - name: Build Android ARM64 static library
+        if: matrix.platform == 'android-arm64-v8a'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S source/Build -B build -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/30.0.16248370/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-26 \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DCMAKE_BUILD_TYPE=Distribution \
+            -DJPH_BUILD_SHARED_LIBS=OFF \
+            -DINTERPROCEDURAL_OPTIMIZATION=OFF \
+            -DGENERATE_DEBUG_SYMBOLS=OFF \
+            -DENABLE_ALL_WARNINGS=OFF \
+            -DJPH_USE_DX12=OFF -DJPH_USE_VK=OFF \
+            -DJPH_USE_MTL=OFF -DJPH_USE_CPU_COMPUTE=OFF \
+            -DTARGET_UNIT_TESTS=OFF -DTARGET_HELLO_WORLD=OFF \
+            -DTARGET_PERFORMANCE_TEST=OFF -DTARGET_SAMPLES=OFF \
+            -DTARGET_VIEWER=OFF
+          cmake --build build --target Jolt --parallel 4
+          cmake --install build --prefix "$PWD/stage"
+          test -s stage/lib/libJolt.a
+          test -s stage/include/Jolt/Jolt.h
+
+      - name: Package and check static SDK
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          cp source/LICENSE stage/Jolt-LICENSE.txt
+          printf 'JOLT_VERSION=%s\nPLATFORM=%s\nCONFIG=Distribution\nLTO=OFF\nGPU_COMPUTE=OFF\n' \
+            "$VERSION" "$PLATFORM" > stage/BUILD-INFO.txt
+          test -s stage/include/Jolt/Jolt.h
+          test -s stage/lib/cmake/Jolt/JoltConfig.cmake
+          if find stage -type f \( -name '*.so' -o -name '*.dylib' -o -name '*.dll' \) -print -quit | grep -q .; then
+            echo "::error::Unexpected shared library in static Jolt SDK"
+            exit 1
+          fi
+          mkdir -p dist
+          tar -czf "dist/Jolt-$VERSION-$PLATFORM-static.tar.gz" -C stage .
+          test -s "dist/Jolt-$VERSION-$PLATFORM-static.tar.gz"
+
+      - name: Upload directly to the single GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: jolt-static
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          file="Jolt-$VERSION-$PLATFORM-static.tar.gz"
+          if [[ "$PLATFORM" == macos-* ]]; then
+            (cd dist && shasum -a 256 "$file" > "$file.sha256")
+          else
+            (cd dist && sha256sum "$file" > "$file.sha256")
+          fi
+          gh release upload "$RELEASE_TAG" "dist/$file" "dist/$file.sha256" \
+            --clobber --repo "$GITHUB_REPOSITORY"
+
+  publish:
+    name: Finalize Jolt static SDK Release
+    needs: [check, build]
+    if: needs.check.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: jolt-static
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - name: Verify all three platform archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "Jolt-$VERSION-*-static.tar.gz" --dir dist
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "Jolt-$VERSION-*-static.tar.gz.sha256" --dir dist
+
+          cd dist
+          files=(
+            "Jolt-$VERSION-windows-x64-msvc-static.tar.gz"
+            "Jolt-$VERSION-macos-universal-static.tar.gz"
+            "Jolt-$VERSION-android-arm64-v8a-static.tar.gz"
+          )
+          for file in "${files[@]}"; do
+            test -s "$file"
+            test -s "$file.sha256"
+            sha256sum -c "$file.sha256"
+            tar -tzf "$file" >/dev/null
+            tar -tzf "$file" | grep -Eq '(^|/)include/Jolt/Jolt\.h$'
+          done
+          [[ "$(find . -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 3 ]]
+          [[ "$(find . -maxdepth 1 -type f -name '*.sha256' | wc -l)" -eq 3 ]]
+          sha256sum "${files[@]}" > SHA256SUMS
+
+      - name: Update rolling Release and remove older assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-notes.txt <<EOF
+          JOLT_VERSION=$VERSION
+
+          Official Jolt Physics source: https://github.com/jrouwe/JoltPhysics/releases/tag/v$VERSION
+
+          C++ static SDKs, Distribution build (no LTO, no GPU compute):
+          - Windows x64 / MSVC: Jolt.lib
+          - macOS universal (x86_64 + arm64): libJolt.a
+          - Android arm64-v8a / API 26 / NDK 30.0.16248370: libJolt.a
+
+          Each archive contains the matching public headers, CMake export, license and build metadata.
+          SHA256SUMS covers the three archives. No Actions Artifacts are used.
+          EOF
+
+          # Publish the complete manifest only after all three archives passed.
+          gh release upload "$RELEASE_TAG" dist/SHA256SUMS \
+            --clobber --repo "$GITHUB_REPOSITORY"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > release.json
+
+          jq -r --arg version "$VERSION" '
+            .assets[] |
+            select(
+              .name != ("Jolt-" + $version + "-windows-x64-msvc-static.tar.gz") and
+              .name != ("Jolt-" + $version + "-macos-universal-static.tar.gz") and
+              .name != ("Jolt-" + $version + "-android-arm64-v8a-static.tar.gz") and
+              .name != "SHA256SUMS"
+            ) | .id
+          ' release.json > expired-assets.txt
+
+          while IFS= read -r asset_id; do
+            [[ -n "$asset_id" ]] || continue
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" >/dev/null
+          done < expired-assets.txt
+
+          gh release edit "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Jolt $VERSION static SDK (Windows, macOS, Android)" \
+            --notes-file release-notes.txt \
+            --prerelease --latest=false
+
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json name,tagName,assets --jq '{name,tagName,assets:[.assets[].name]}'
