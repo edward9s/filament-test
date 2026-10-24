@@ -54,10 +54,24 @@ int main() {
             if(a!=b)assert(length(effectOrigin(a)-effectOrigin(b))>3);
     assert(lightningPulse(.12f)>.9f&&lightningPulse(2)<.0001f);
     assert(blastAge(5.41f)<.02f);
+    // Lit geometry receives a strong local source despite the bright daytime sun.
+    assert(effectLightIntensity(Effect::Fire,0)>1000000.f);
+    assert(effectLightIntensity(Effect::Fire,.2f)!=effectLightIntensity(Effect::Fire,0));
+    assert(effectLightIntensity(Effect::Blast,0)>effectLightIntensity(Effect::Blast,.4f));
+    assert(effectLightIntensity(Effect::Blast,2.5f)==0.f);
+    assert(effectLightIntensity(Effect::Blast,5.41f)>effectLightIntensity(Effect::Blast,2.f));
+    assert(effectLightIntensity(Effect::Lightning,.12f)>effectLightIntensity(Effect::Lightning,2.f));
+    assert(effectLightIntensity(Effect::Lightning,.3f)>effectLightIntensity(Effect::Lightning,2.f));
+    bool invalidLight=false;
+    try{effectLightIntensity(Effect::Smoke,0);}catch(const std::invalid_argument&){invalidLight=true;}
+    assert(invalidLight);
     for(float time:{-1.f,std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity()}) {
         bool rejected=false;
         try{effectMeshes(time,eye);}catch(const std::invalid_argument&){rejected=true;}
         assert(rejected);
+        rejected=false;
+        try{effectLightIntensity(Effect::Fire,time);}catch(const std::invalid_argument&){rejected=true;}
+        assert(rejected);
     }
-    std::cout<<count/4<<" animated quads, six fixed-size batches; determinism, topology, timing, separation and invalid inputs passed\n";
+    std::cout<<count/4<<" animated quads, six fixed-size batches; determinism, topology, lighting, timing, separation and invalid inputs passed\n";
 }
