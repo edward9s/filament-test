@@ -1,7 +1,7 @@
 # Forest Ruins — Filament + SDL3
 
 Native C++ forest-and-ruins scene for **Android arm64**, using **SDL 3.4.18** for
-window/input/lifecycle and **Google Filament 1.78.1** for OpenGL ES rendering.
+window/input/lifecycle and **Google Filament 1.78.1** for switchable OpenGL ES / Vulkan rendering.
 
 ![Actual Filament OpenGL rendering on Linux llvmpipe](docs/forest-preview.jpg)
 
@@ -19,7 +19,13 @@ Linux software renderer, not a phone.
   three shadow cascades, SSAO, height fog, restrained bloom, temporal anti-aliasing and animated foliage.
 - A sunward opening in the canopy lets direct sunlight reach the arches and stone path;
   reduced ambient light and thinner fog preserve the contrast between sunlight and tree shadows.
-- Top-left FPS overlay, updated every half second from submitted frames. Skipped frames count
+- Top-left FPS overlay also shows the active GPU backend (`GL` / `VK`). Tap that overlay
+  to switch backend without exiting the app, or press `V` on a connected keyboard. The
+  renderer is fully destroyed and recreated before switching; camera position and the
+  animation clock are preserved. OpenGL ES remains the default on app launch. If Vulkan
+  initialization fails, the error is reported rather than substituting OpenGL ES.
+  Render backend initialization is also printed to Android logcat.
+- FPS updates every half second from submitted frames. Skipped frames count
   as elapsed time; backgrounding and surface changes reset the measurement.
 - Deterministic generation with spatial/material batching and frustum culling; approximately
   386,000 triangles, 232 batches and 57 MiB of vertex/index data before GPU driver overhead.
@@ -43,6 +49,27 @@ Linux software renderer, not a phone.
 The visual target is a realistic forest ruin. Architecture and vegetation are procedural geometry;
 this does not contain scanned buildings or production-quality scanned tree models. Actual image
 quality and frame rate must be evaluated on the target phone.
+
+## Compare OpenGL ES and Vulkan
+
+Install the single signed APK. It contains both API versions of the custom Filament shaders
+(compiled with matching `matc -a opengl -a vulkan -p all`) and the same textures and
+procedural geometry. Tap the upper-left `FPS ... GL` overlay to switch to Vulkan,
+which then appears as `FPS ... VK`. Tap again to return to OpenGL ES. The overlay
+is clickable with touch or mouse; a physical keyboard can also switch with `V`.
+
+The Vulkan test requires a device with a working Vulkan driver. Do not treat a Vulkan
+initialization failure as a valid comparison result. The error is shown on screen and in
+logcat, and no fallback changes the requested test backend.
+
+For repeatable FPS measurements, wait after each switch for shaders to warm up, use
+identical camera positions and scene conditions, and record multiple runs in each
+backend. This demo retains its existing automatic dynamic resolution (65–100% per
+axis) to preserve normal interactive behavior: FPS alone cannot establish the
+faster renderer when the two backends choose different internal resolutions. For a
+strict same-resolution test, temporarily disable dynamic resolution in
+`Forest::configure()` for both backends and rebuild once; compare frame times,
+1% lows, and thermal behavior.
 
 ## Performance
 
@@ -164,7 +191,7 @@ background/resume and screen off/on. Dynamic resolution can scale between 65% an
 
 ## Layout
 
-- `src/main.cpp`: SDL event loop, orbit/pinch camera, Android surface recreation and suspension.
+- `src/main.cpp`: SDL event loop, backend switching, orbit/pinch camera, Android surface recreation and suspension.
 - `src/Forest.*`: Filament meshes, textures, materials, environment, sunlight and resource ownership.
 - `src/Geometry.*`: deterministic scene generation, independent of SDL and the renderer.
 - `src/Effects.*`, `src/EffectsGeometry.*`: effect rendering, light pulses and deterministic animation.
@@ -174,7 +201,7 @@ background/resume and screen off/on. Dynamic resolution can scale between 65% an
 - `scripts/prepare-scene.py`, `scripts/check-apk.py`: asset preparation and packaging validation.
 - `android/`, `CMakeLists.txt`: existing SDLActivity / native Android build.
 
-SDL does not create an OpenGL context. Filament owns the rendering backend and renders into
+SDL does not create a graphics context. Filament owns the selected rendering backend and renders into
 SDL's Android native window. Backgrounding releases the swapchain even if Android later reuses
 the same native-window address. Renderer resources are destroyed before the engine.
 
