@@ -69,7 +69,7 @@ def main():
                     (output / (entry['name'] + '.rgba')).write_bytes(image.tobytes())
             print(f"Prepared {entry['name']}", flush=True)
         for material in ['surface', 'foliage', 'canopy', 'hud', 'effects', 'water']:
-            subprocess.run([str(tools / 'matc'), '-a', 'opengl', '-p', 'all',
+            subprocess.run([str(tools / 'matc'), '-a', 'opengl', '-a', 'vulkan', '-p', 'all',
                             '-o', str(output / (material + '.filamat')),
                             str(ROOT / 'materials' / (material + '.mat'))], check=True)
         shutil.copy(ROOT / 'assets/CREDITS.md', output / 'CREDITS.md')
