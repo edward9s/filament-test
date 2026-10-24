@@ -29,7 +29,11 @@ Linux software renderer, not a phone.
 - Five separated effects: continuous fire and embers at the front left, a repeating explosion on
   the left, an animated water jet and flowing sheet at the front right, branching double-strike
   lightning on the right, and a dense drifting smoke column behind the ruins.
-  Fire, explosion and lightning illuminate nearby surfaces. Explosion repeats every 5.4 seconds;
+  Fire, explosion and lightning use localized colored Filament point lights that visibly
+  illuminate the stone ruins and ground at the scene's daylight exposure. The warm fire
+  flickers continuously, the explosion casts a fast-fading orange flash, and the blue-white
+  lightning lights the ruins at both strike pulses. Point-light shadow maps remain disabled
+  to avoid the substantial mobile GPU cost. Explosion repeats every 5.4 seconds;
   lightning every 4.8 seconds. These are visual effects without damage or fluid physics.
   The effects add 583 animated quads (1,166 triangles), six batches and about 126 KiB of vertex/index
   data; buffers keep fixed capacity while visible positions update with time and the camera.

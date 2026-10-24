@@ -63,6 +63,20 @@ float lightningPulse(float seconds) {
     const float a=(phase-.12f)/.055f,b=(phase-.3f)/.08f;
     return std::exp(-a*a)+.75f*std::exp(-b*b);
 }
+float effectLightIntensity(Effect effect,float seconds) {
+    if(!std::isfinite(seconds)||seconds<0)throw std::invalid_argument("Invalid effect light time");
+    switch(effect) {
+        case Effect::Fire:
+            return 1100000.f*(1.f+.12f*std::sin(seconds*13.f)+.08f*std::sin(seconds*23.f));
+        case Effect::Blast: {
+            const float age=blastAge(seconds);
+            return age<2.5f?6000000.f*std::exp(-age*3.2f):0.f;
+        }
+        case Effect::Lightning:
+            return 9000000.f*lightningPulse(seconds);
+        default:throw std::invalid_argument("Effect does not emit light");
+    }
+}
 EffectMeshes effectMeshes(float seconds,float3 eye) {
     if(!std::isfinite(seconds)||seconds<0||!std::isfinite(eye.x)||!std::isfinite(eye.y)||!std::isfinite(eye.z))
         throw std::invalid_argument("Invalid effect time or camera");
