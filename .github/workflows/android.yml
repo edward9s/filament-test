@@ -11,7 +11,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  sdl:
+    name: Ensure current SDL3 static SDK
+    uses: ./.github/workflows/build_sdl.yml
+
   android:
+    needs: sdl
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
