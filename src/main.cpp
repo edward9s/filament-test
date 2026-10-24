@@ -41,8 +41,11 @@ public:
     bool consumeBackendSwitch() { return std::exchange(switchRequested_,false); }
     void initialize() {
         SDL_Log("Initializing Filament %s", backend_==backend::Backend::VULKAN?"Vulkan":"OpenGL ES");
-        if(backend_==backend::Backend::VULKAN)
-            platform_=std::make_unique<forest::SwapPlatform<backend::VulkanPlatformAndroid>>();
+        if(backend_==backend::Backend::VULKAN) {
+            SDL_Log("Vulkan GPU synchronization diagnostic: %s",FOREST_VULKAN_SYNC?"ON":"OFF");
+            platform_=std::make_unique<forest::SwapPlatform<backend::VulkanPlatformAndroid>>(
+                bool(FOREST_VULKAN_SYNC));
+        }
         engine_=forest::createRendererEngine(backend_,platform_.get());
         if(!engine_) throw std::runtime_error(backend_==backend::Backend::VULKAN
             ? "Filament Vulkan initialization failed (check Android Vulkan support and SDK)"
@@ -259,4 +262,3 @@ int main(int,char**) {
     }
     SDL_DestroyWindow(window);SDL_Quit();return result;
 }
-

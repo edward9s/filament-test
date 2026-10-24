@@ -2,6 +2,11 @@ name: Android test build
 
 on:
   workflow_dispatch:
+    inputs:
+      vulkan_sync:
+        description: 'GPU lifetime diagnostic (slower; unsuitable for FPS comparisons)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -23,6 +28,8 @@ jobs:
     needs: [sdl, jolt]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    env:
+      FOREST_VULKAN_SYNC: ${{ inputs.vulkan_sync && 'ON' || 'OFF' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -167,6 +174,7 @@ jobs:
           [[ "$sdl_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           notes="Latest successful build: #${GITHUB_RUN_NUMBER}, commit ${GITHUB_SHA}.
           SDL3 ${sdl_version} (repository static SDK) + Google Filament 1.78.1; arm64 release APK signed with the configured repository key.
+          Vulkan synchronization diagnostic: ${FOREST_VULKAN_SYNC}.
           Workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           APK size: ${size} bytes.
           SHA-256: ${digest}"
@@ -186,4 +194,3 @@ jobs:
       - name: Remove release signing key
         if: always()
         run: rm -f -- "$RUNNER_TEMP/filament-release.jks"
-

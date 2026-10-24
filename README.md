@@ -72,7 +72,7 @@ when comparing performance. Scene geometry, lighting, effects and postprocessing
 
 Filament 1.78.1 also retries `VK_SUBOPTIMAL_KHR` in its image-acquisition loop and can
 skip presentation indefinitely when the driver repeatedly returns it (as seen in the tablet's
-earlier log). Vulkan defines this result as a successful acquisition of a usable image.
+earlier log). This is a separate SDK defect, not an established cause of the tablet fault. Vulkan defines this result as a successful acquisition of a usable image.
 `SwapPlatform.h` uses that image, including its original index and readiness semaphore;
 out-of-date and error results remain unchanged. Filament still detects size changes and
 recreates the swapchain. The supplied Android platform is owned until the engine is destroyed.
@@ -88,6 +88,28 @@ strict same-resolution test, temporarily disable dynamic resolution in
 1% lows, and thermal behavior.
 
 ## Performance
+
+### GPU lifetime diagnostic
+
+The 2026-10-25 tablet bugreport records a GPU page fault in the Filament process:
+the driver identifies the faulting Vulkan allocation as already freed, followed by GPU
+timeouts. The application can still handle input and switch back to OpenGL ES. The
+SUBOPTIMAL acquisition adapter does not resolve this failure; its warning was not
+observed in the latest run. A suboptimal warning can also originate from presentation.
+The exact resource and responsible engine/driver code remain unconfirmed.
+
+For the next device check, run Android test build from this branch with `vulkan_sync`
+checked. This builds `0.2.0-vksync`, logs the first four acquire/present results, and waits
+for submitted Vulkan drawing inside the platform's present callback, before endFrame's
+cache garbage collection. Waiting after endFrame in the application would be too late.
+Release notes record whether this diagnostic is ON or OFF.
+
+This is an isolation test, not a confirmed fix or a performance optimization. If the
+black screen disappears, it implicates overlapping GPU work and resource reclamation;
+that still does not identify a specific resource. If it persists, the new result logs
+help distinguish acquisition, drawing and presentation failures. The default is OFF;
+OpenGL ES and normal Vulkan synchronization behavior are preserved. Do not compare FPS
+from the diagnostic build against normal rendering.
 
 Static batches share only bit-identical vertices and use 16-bit indices. Triangle order, UVs,
 tangent frames and colors are preserved. Current mesh payload drops from 64,784,496 to 59,593,916
@@ -238,4 +260,3 @@ first frame, and initialization and swapchain readiness are logged separately.
 Official references: [Filament](https://github.com/google/filament/releases/tag/v1.78.1),
 [SDL3](https://github.com/libsdl-org/SDL/releases/tag/release-3.4.18),
 [asset credits](assets/CREDITS.md).
-
