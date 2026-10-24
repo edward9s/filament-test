@@ -128,8 +128,8 @@ jobs:
             echo "::error::Unexpected libSDL3.so: SDL3 must be statically linked"
             exit 1
           fi
-          native="android/app/build/intermediates/cxx/Release"
-          main_so="$(find "$native" -type f -path '*/obj/arm64-v8a/libmain.so' -print -quit)"
+          main_so="$RUNNER_TEMP/filament-main.so"
+          unzip -p "$apk" 'lib/arm64-v8a/libmain.so' > "$main_so"
           test -s "$main_so"
           ndk_bin="$ANDROID_HOME/ndk/30.0.16248370/toolchains/llvm/prebuilt/linux-x86_64/bin"
           "$ndk_bin/llvm-readelf" --dyn-syms "$main_so" | grep -E '[[:space:]]JNI_OnLoad([[:space:]]|$)'
