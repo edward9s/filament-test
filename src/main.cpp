@@ -10,7 +10,6 @@
 #include <utils/EntityManager.h>
 #include <android/native_window.h>
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <map>
 #include <memory>
@@ -29,12 +28,13 @@ std::vector<uint8_t> readAsset(const std::string& path) {
     const auto* bytes=static_cast<const uint8_t*>(data);
     return {bytes,bytes+size};
 }
+struct CameraOrbit { float yaw=.24f, pitch=.12f, distance=13.f; };
 class Demo {
 public:
-    Demo(SDL_Window* window, backend::Backend backend, std::array<float,3> camera, uint64_t start)
-        : window_(window), backend_(backend), yaw_(camera[0]), pitch_(camera[1]),
-          distance_(camera[2]), start_(start) {}
-    std::array<float,3> cameraPosition() const { return {yaw_,pitch_,distance_}; }
+    Demo(SDL_Window* window, backend::Backend backend, CameraOrbit orbit, uint64_t start)
+        : window_(window), backend_(backend), yaw_(orbit.yaw), pitch_(orbit.pitch),
+          distance_(orbit.distance), start_(start) {}
+    CameraOrbit cameraOrbit() const { return {yaw_,pitch_,distance_}; }
     bool consumeBackendSwitch() { return std::exchange(switchRequested_,false); }
     void initialize() {
         SDL_Log("Initializing Filament %s", backend_==backend::Backend::VULKAN?"Vulkan":"OpenGL ES");
@@ -203,7 +203,7 @@ int main(int,char**) {
     try {
         const uint64_t start=SDL_GetTicks();
         auto backendChoice=backend::Backend::OPENGL;
-        auto demo=std::make_unique<Demo>(window,backendChoice,std::array<float,3>{.24f,.12f,13.f},start);
+        auto demo=std::make_unique<Demo>(window,backendChoice,CameraOrbit{},start);
         demo->initialize();
         bool running=true;
         while(running) {
@@ -215,11 +215,11 @@ int main(int,char**) {
             }
             if(!running)break;
             if(demo->consumeBackendSwitch()) {
-                const auto camera=demo->cameraPosition();
+                const auto orbit=demo->cameraOrbit();
                 demo.reset(); // Fully release the previous GPU driver before creating the next.
                 backendChoice=backendChoice==backend::Backend::OPENGL
                     ? backend::Backend::VULKAN : backend::Backend::OPENGL;
-                demo=std::make_unique<Demo>(window,backendChoice,camera,start);
+                demo=std::make_unique<Demo>(window,backendChoice,orbit,start);
                 demo->initialize(); // Fail visibly; never silently substitute another backend.
             }
             demo->frame();
