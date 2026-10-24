@@ -62,6 +62,14 @@ The Vulkan test requires a device with a working Vulkan driver. Do not treat a V
 initialization failure as a valid comparison result. The error is shown on screen and in
 logcat, and no fallback changes the requested test backend.
 
+On the Tab S8 / Adreno 730 report, Vulkan device selection and the five-image swapchain
+both succeeded before the driver reported GPU command protocol errors and deadlocks.
+This is different from The Forge's application-side three-image limit. Vulkan now disables
+Filament's shared material-uniform batching through `RendererEngine.h`, using individual
+material buffers and staged uploads instead. This is a compatibility workaround pending
+device confirmation, not proof that batching caused the driver fault; record this setting
+when comparing performance. Scene geometry, lighting, effects and postprocessing are unchanged.
+
 For repeatable FPS measurements, wait after each switch for shaders to warm up, use
 identical camera positions and scene conditions, and record multiple runs in each
 backend. This demo retains its existing automatic dynamic resolution (65–100% per
@@ -183,6 +191,12 @@ pixels at short and long running times. Noise uses high-precision integer hashin
 exposed in high precision before being stored in Filament's material inputs, avoiding FP16 overflow.
 Run `python3 tests/particles.py` on Linux with Mesa EGL installed.
 
+The Android workflow also runs `bash scripts/test-vulkan.sh` using the official matching
+Linux Filament SDK, Clang/libc++ 20 and Mesa lavapipe. It renders 16 complete frames with
+multiple frames in flight, recreates the swapchain halfway through, and verifies GPU
+readback. The same engine factory is used by Android and this test. A software Vulkan
+test cannot verify the Adreno driver or Android surface lifecycle on the tablet.
+
 Geometry checks cover determinism, finite coordinates/UVs/tangents, normalized tangent frames,
 index bounds, degenerate triangles, ground winding, layer presence and mobile geometry budgets.
 Shader compilation uses the exact engine release. These checks do not establish Android runtime
@@ -203,8 +217,12 @@ background/resume and screen off/on. Dynamic resolution can scale between 65% an
 
 SDL does not create a graphics context. Filament owns the selected rendering backend and renders into
 SDL's Android native window. Backgrounding releases the swapchain even if Android later reuses
-the same native-window address. Renderer resources are destroyed before the engine.
+the same native-window address. The demo holds an explicit native-window reference until
+the queued swapchain destruction has completed with `flushAndWait()`. Switching backends
+destroys the previous engine before initializing the next. Scene uploads finish before the
+first frame, and initialization and swapchain readiness are logged separately.
 
 Official references: [Filament](https://github.com/google/filament/releases/tag/v1.78.1),
 [SDL3](https://github.com/libsdl-org/SDL/releases/tag/release-3.4.18),
 [asset credits](assets/CREDITS.md).
+

@@ -3,6 +3,7 @@
 #include "Forest.h"
 #include "FpsHud.h"
 #include "Effects.h"
+#include "RendererEngine.h"
 #include <filament/Camera.h>
 #include <filament/Renderer.h>
 #include <filament/SwapChain.h>
@@ -38,7 +39,7 @@ public:
     bool consumeBackendSwitch() { return std::exchange(switchRequested_,false); }
     void initialize() {
         SDL_Log("Initializing Filament %s", backend_==backend::Backend::VULKAN?"Vulkan":"OpenGL ES");
-        engine_=Engine::create(backend_);
+        engine_=forest::createRendererEngine(backend_);
         if(!engine_) throw std::runtime_error(backend_==backend::Backend::VULKAN
             ? "Filament Vulkan initialization failed (check Android Vulkan support and SDK)"
             : "Filament OpenGL ES initialization failed");
@@ -55,6 +56,10 @@ public:
         hud_->load(readAsset);
         hud_->setVulkan(backend_==backend::Backend::VULKAN);
         Renderer::FrameRateOptions rate;rate.interval=1;renderer_->setFrameRateOptions(rate);
+        engine_->flushAndWait();
+        SDL_Log("Filament %s scene uploads complete (material UBO batching %s)",
+            backend_==backend::Backend::VULKAN?"Vulkan":"OpenGL ES",
+            backend_==backend::Backend::VULKAN?"disabled":"default");
     }
     ~Demo() {
         if(!engine_)return;
@@ -72,8 +77,7 @@ public:
     void suspend() {
         active_=false;fingers_.clear();hudFingers_.clear();mouseHudDown_=false;
         if(hud_)hud_->reset();
-        if(swapChain_) {engine_->destroy(swapChain_);swapChain_=nullptr;}
-        native_=nullptr;
+        releaseSwapChain();
     }
     void event(const SDL_Event& e) {
         switch(e.type) {
@@ -136,8 +140,17 @@ public:
             SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER,nullptr));
         if(native!=native_) {
             hud_->reset();
-            if(swapChain_)engine_->destroy(swapChain_);
-            native_=native;swapChain_=native?engine_->createSwapChain(native):nullptr;
+            releaseSwapChain();
+            if(native) {
+                ANativeWindow_acquire(native);
+                native_=native;
+                swapChain_=engine_->createSwapChain(native_);
+                engine_->flushAndWait();
+                SDL_Log("Filament %s swapchain ready: %dx%d, native format %d",
+                    backend_==backend::Backend::VULKAN?"Vulkan":"OpenGL ES",
+                    ANativeWindow_getWidth(native_),ANativeWindow_getHeight(native_),
+                    ANativeWindow_getFormat(native_));
+            }
         }
         SDL_GetWindowSizeInPixels(window_,&width_,&height_);
         if(!swapChain_ || width_<=0 || height_<=0) {hud_->reset();SDL_Delay(20);return;}
@@ -157,6 +170,15 @@ public:
         }
     }
 private:
+    void releaseSwapChain() {
+        if(swapChain_) {
+            engine_->destroy(swapChain_);
+            swapChain_=nullptr;
+            // destroy() is queued. Keep the native window alive until the GPU driver detaches.
+            engine_->flushAndWait();
+        }
+        if(native_) {ANativeWindow_release(native_);native_=nullptr;}
+    }
     bool mouseOnHud(float x, float y) const {
         int width=0,height=0;
         if(!SDL_GetWindowSize(window_,&width,&height) || width<=0 || height<=0)
@@ -231,3 +253,4 @@ int main(int,char**) {
     }
     SDL_DestroyWindow(window);SDL_Quit();return result;
 }
+

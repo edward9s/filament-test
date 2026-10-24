@@ -114,6 +114,12 @@ jobs:
             -Isrc tests/effects.cpp src/EffectsGeometry.cpp src/Geometry.cpp -o /tmp/forest-effects-test
           /tmp/forest-effects-test
 
+      - name: Render the complete scene with Vulkan and recreate its swapchain
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            clang-20 libc++-20-dev libc++abi-20-dev mesa-vulkan-drivers
+          bash scripts/test-vulkan.sh
+
       - name: Build signed Android arm64 release APK
         working-directory: android
         env:
@@ -178,3 +184,4 @@ jobs:
       - name: Remove release signing key
         if: always()
         run: rm -f -- "$RUNNER_TEMP/filament-release.jks"
+
