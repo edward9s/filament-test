@@ -10,10 +10,13 @@
 #include <utils/EntityManager.h>
 #include <android/native_window.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <map>
 #include <memory>
+#include <set>
 #include <stdexcept>
+#include <utility>
 
 namespace {
 using namespace filament;
@@ -28,10 +31,17 @@ std::vector<uint8_t> readAsset(const std::string& path) {
 }
 class Demo {
 public:
-    explicit Demo(SDL_Window* window):window_(window) {}
+    Demo(SDL_Window* window, backend::Backend backend, std::array<float,3> camera, uint64_t start)
+        : window_(window), backend_(backend), yaw_(camera[0]), pitch_(camera[1]),
+          distance_(camera[2]), start_(start) {}
+    std::array<float,3> cameraPosition() const { return {yaw_,pitch_,distance_}; }
+    bool consumeBackendSwitch() { return std::exchange(switchRequested_,false); }
     void initialize() {
-        engine_=Engine::create(backend::Backend::OPENGL);
-        if(!engine_) throw std::runtime_error("Filament OpenGL initialization failed");
+        SDL_Log("Initializing Filament %s", backend_==backend::Backend::VULKAN?"Vulkan":"OpenGL ES");
+        engine_=Engine::create(backend_);
+        if(!engine_) throw std::runtime_error(backend_==backend::Backend::VULKAN
+            ? "Filament Vulkan initialization failed (check Android Vulkan support and SDK)"
+            : "Filament OpenGL ES initialization failed");
         renderer_=engine_->createRenderer();scene_=engine_->createScene();view_=engine_->createView();
         cameraEntity_=utils::EntityManager::get().create();camera_=engine_->createCamera(cameraEntity_);
         view_->setCamera(camera_);view_->setScene(scene_);
@@ -43,8 +53,8 @@ public:
         effects_->load(readAsset);
         hud_=std::make_unique<forest::FpsHud>(*engine_);
         hud_->load(readAsset);
+        hud_->setVulkan(backend_==backend::Backend::VULKAN);
         Renderer::FrameRateOptions rate;rate.interval=1;renderer_->setFrameRateOptions(rate);
-        start_=SDL_GetTicks();
     }
     ~Demo() {
         if(!engine_)return;
@@ -60,7 +70,7 @@ public:
         Engine::destroy(&engine_);
     }
     void suspend() {
-        active_=false;fingers_.clear();
+        active_=false;fingers_.clear();hudFingers_.clear();mouseHudDown_=false;
         if(hud_)hud_->reset();
         if(swapChain_) {engine_->destroy(swapChain_);swapChain_=nullptr;}
         native_=nullptr;
@@ -71,8 +81,21 @@ public:
         case SDL_EVENT_WINDOW_MINIMIZED: suspend();break;
         case SDL_EVENT_DID_ENTER_FOREGROUND: case SDL_EVENT_WINDOW_SHOWN:
         case SDL_EVENT_WINDOW_RESTORED: active_=true;break;
-        case SDL_EVENT_FINGER_DOWN: fingers_[e.tfinger.fingerID]={e.tfinger.x,e.tfinger.y};break;
-        case SDL_EVENT_FINGER_UP: case SDL_EVENT_FINGER_CANCELED: fingers_.erase(e.tfinger.fingerID);break;
+        case SDL_EVENT_FINGER_DOWN:
+            if(hud_->contains(e.tfinger.x,e.tfinger.y,width_,height_))
+                hudFingers_.insert(e.tfinger.fingerID);
+            else fingers_[e.tfinger.fingerID]={e.tfinger.x,e.tfinger.y};
+            break;
+        case SDL_EVENT_FINGER_UP:
+            if(hudFingers_.erase(e.tfinger.fingerID) &&
+               hud_->contains(e.tfinger.x,e.tfinger.y,width_,height_))
+                switchRequested_=true;
+            fingers_.erase(e.tfinger.fingerID);
+            break;
+        case SDL_EVENT_FINGER_CANCELED:
+            hudFingers_.erase(e.tfinger.fingerID);
+            fingers_.erase(e.tfinger.fingerID);
+            break;
         case SDL_EVENT_FINGER_MOTION: {
             auto finger=fingers_.find(e.tfinger.fingerID);
             if(finger==fingers_.end())break;
@@ -85,9 +108,23 @@ public:
             }
             break;
         }
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            if(e.button.which!=SDL_TOUCH_MOUSEID && e.button.button==SDL_BUTTON_LEFT)
+                mouseHudDown_=mouseOnHud(e.button.x,e.button.y);
+            break;
+        case SDL_EVENT_MOUSE_BUTTON_UP:
+            if(e.button.which!=SDL_TOUCH_MOUSEID && e.button.button==SDL_BUTTON_LEFT) {
+                if(mouseHudDown_ && mouseOnHud(e.button.x,e.button.y)) switchRequested_=true;
+                mouseHudDown_=false;
+            }
+            break;
         case SDL_EVENT_MOUSE_MOTION:
-            if(e.motion.which!=SDL_TOUCH_MOUSEID && (e.motion.state&SDL_BUTTON_LMASK) && width_>0 && height_>0)
+            if(e.motion.which!=SDL_TOUCH_MOUSEID && !mouseHudDown_ &&
+               (e.motion.state&SDL_BUTTON_LMASK) && width_>0 && height_>0)
                 orbit(e.motion.xrel/width_,e.motion.yrel/height_);
+            break;
+        case SDL_EVENT_KEY_DOWN:
+            if(!e.key.repeat && e.key.key==SDLK_V) switchRequested_=true;
             break;
         case SDL_EVENT_MOUSE_WHEEL: distance_=std::clamp(distance_-e.wheel.y,4.f,24.f);break;
         default: break;
@@ -120,6 +157,12 @@ public:
         }
     }
 private:
+    bool mouseOnHud(float x, float y) const {
+        int width=0,height=0;
+        if(!SDL_GetWindowSize(window_,&width,&height) || width<=0 || height<=0)
+            return false;
+        return hud_->contains(x/width,y/height,width_,height_);
+    }
     float pinchDistance() const {
         if(fingers_.size()!=2)return 0;
         auto i=fingers_.begin();float2 a=i->second;float2 b=(++i)->second;
@@ -129,6 +172,7 @@ private:
     }
     void orbit(float x,float y) {yaw_-=x*4;pitch_=std::clamp(pitch_+y*2,.03f,.85f);}
     SDL_Window* window_;
+    backend::Backend backend_;
     Engine* engine_=nullptr;
     Renderer* renderer_=nullptr;
     Scene* scene_=nullptr;
@@ -141,10 +185,13 @@ private:
     std::unique_ptr<forest::Effects> effects_;
     std::unique_ptr<forest::FpsHud> hud_;
     std::map<SDL_FingerID,float2> fingers_;
-    float yaw_=.24f,pitch_=.12f,distance_=13;
+    std::set<SDL_FingerID> hudFingers_;
+    bool mouseHudDown_=false;
+    bool switchRequested_=false;
+    float yaw_,pitch_,distance_;
     int width_=0,height_=0;
     bool active_=true;
-    uint64_t start_=0;
+    uint64_t start_;
 };
 }
 int main(int,char**) {
@@ -154,15 +201,28 @@ int main(int,char**) {
     if(!window) {SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,"%s",SDL_GetError());SDL_Quit();return 1;}
     int result=0;
     try {
-        Demo demo(window);demo.initialize();bool running=true;
+        const uint64_t start=SDL_GetTicks();
+        auto backendChoice=backend::Backend::OPENGL;
+        auto demo=std::make_unique<Demo>(window,backendChoice,std::array<float,3>{.24f,.12f,13.f},start);
+        demo->initialize();
+        bool running=true;
         while(running) {
             SDL_Event event;
             while(SDL_PollEvent(&event)) {
                 if(event.type==SDL_EVENT_QUIT || (event.type==SDL_EVENT_KEY_DOWN &&
                     (event.key.key==SDLK_ESCAPE || event.key.key==SDLK_AC_BACK)))running=false;
-                demo.event(event);
+                if(running)demo->event(event);
             }
-            if(running)demo.frame();
+            if(!running)break;
+            if(demo->consumeBackendSwitch()) {
+                const auto camera=demo->cameraPosition();
+                demo.reset(); // Fully release the previous GPU driver before creating the next.
+                backendChoice=backendChoice==backend::Backend::OPENGL
+                    ? backend::Backend::VULKAN : backend::Backend::OPENGL;
+                demo=std::make_unique<Demo>(window,backendChoice,camera,start);
+                demo->initialize(); // Fail visibly; never silently substitute another backend.
+            }
+            demo->frame();
         }
     } catch(const std::exception& error) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,"Forest scene failed: %s",error.what());
