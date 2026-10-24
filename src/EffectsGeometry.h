@@ -19,5 +19,6 @@ using EffectMeshes = std::array<std::vector<EffectVertex>, size_t(Effect::Count)
 filament::math::float3 effectOrigin(Effect effect);
 float blastAge(float seconds);
 float lightningPulse(float seconds);
+// Invisible explosion/strike batches are empty; active batches keep fixed topology.
 EffectMeshes effectMeshes(float seconds, filament::math::float3 eye);
 }

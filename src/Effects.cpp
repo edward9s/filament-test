@@ -27,18 +27,21 @@ void Effects::load(const AssetReader& read) {
         materials_[i]=Material::Builder().package(bytes.data(),bytes.size()).build(engine_);
         if(!materials_[i])throw std::runtime_error("Invalid effects material");
     }
-    const auto meshes=effectMeshes(0,{3.07f,3.16f,9.54f});
+    const auto meshes=effectMeshes(.12f,{3.07f,3.16f,9.54f});
     for(size_t i=0;i<batches_.size();++i) {
         auto& b=batches_[i];b.count=meshes[i].size();
-        if(b.count%4||b.count>std::numeric_limits<uint16_t>::max())throw std::logic_error("Invalid effects mesh size");
+        if(b.count==0||b.count%4||b.count>std::numeric_limits<uint16_t>::max())throw std::logic_error("Invalid effects mesh size");
         b.material=materials_[i==size_t(Effect::Water)?1:0]->createInstance();
         if(i!=size_t(Effect::Water))b.material->setParameter("kind",int(i));
         b.material->setParameter("time",0.f);
-        b.vertices=VertexBuffer::Builder().vertexCount(uint32_t(b.count)).bufferCount(1)
+        VertexBuffer::Builder builder;
+        builder.vertexCount(uint32_t(b.count)).bufferCount(1)
             .attribute(VertexAttribute::POSITION,0,VertexBuffer::AttributeType::FLOAT3,offsetof(EffectVertex,position),sizeof(EffectVertex))
             .attribute(VertexAttribute::UV0,0,VertexBuffer::AttributeType::FLOAT2,offsetof(EffectVertex,uv),sizeof(EffectVertex))
-            .attribute(VertexAttribute::TANGENTS,0,VertexBuffer::AttributeType::FLOAT4,offsetof(EffectVertex,tangent),sizeof(EffectVertex))
-            .attribute(VertexAttribute::COLOR,0,VertexBuffer::AttributeType::FLOAT4,offsetof(EffectVertex,color),sizeof(EffectVertex)).build(engine_);
+            .attribute(VertexAttribute::COLOR,0,VertexBuffer::AttributeType::FLOAT4,offsetof(EffectVertex,color),sizeof(EffectVertex));
+        if(i==size_t(Effect::Water))builder.attribute(VertexAttribute::TANGENTS,0,
+            VertexBuffer::AttributeType::FLOAT4,offsetof(EffectVertex,tangent),sizeof(EffectVertex));
+        b.vertices=builder.build(engine_);
         auto* indices=new std::vector<uint16_t>();indices->reserve(b.count/4*6);
         for(size_t j=0;j<b.count;j+=4)for(unsigned offset:{0u,1u,2u,0u,2u,3u})indices->push_back(uint16_t(j+offset));
         b.indices=IndexBuffer::Builder().indexCount(uint32_t(indices->size())).bufferType(IndexBuffer::IndexType::USHORT).build(engine_);
@@ -67,6 +70,13 @@ void Effects::animate(float seconds,float3 eye) {
     auto meshes=effectMeshes(seconds,eye);
     for(size_t i=0;i<batches_.size();++i) {
         auto& b=batches_[i];
+        const bool visible=!meshes[i].empty();
+        if(visible!=b.visible) {
+            auto& renderables=engine_.getRenderableManager();
+            renderables.setLayerMask(renderables.getInstance(b.entity),0xff,visible?0x1:0x0);
+            b.visible=visible;
+        }
+        if(!visible)continue;
         if(meshes[i].size()!=b.count)throw std::logic_error("Effects topology changed");
         auto* vertices=new std::vector<EffectVertex>(std::move(meshes[i]));
         b.vertices->setBufferAt(engine_,0,VertexBuffer::BufferDescriptor(vertices->data(),vertices->size()*sizeof(EffectVertex),

@@ -24,6 +24,9 @@ int main() {
         for(float3 camera:{eye,float3{0,14,-10},effectOrigin(Effect::Fire)}) {
             const auto meshes=effectMeshes(time,camera);
             for(size_t i=0;i<meshes.size();++i) {
+                const bool hidden=(i==size_t(Effect::Blast) && blastAge(time)>=2.5f) ||
+                    (i==size_t(Effect::Lightning) && lightningPulse(time)<.003f);
+                if(hidden) {assert(meshes[i].empty());continue;}
                 assert(meshes[i].size()==initial[i].size());
                 for(size_t j=0;j<meshes[i].size();++j) {
                     const auto& v=meshes[i][j];
@@ -41,6 +44,11 @@ int main() {
         }
     }
     for(bool changed:moved)assert(changed);
+    // A hidden batch must return at full capacity on the next cycle.
+    assert(effectMeshes(3.0f,eye)[size_t(Effect::Blast)].empty());
+    assert(effectMeshes(5.52f,eye)[size_t(Effect::Blast)].size()==initial[size_t(Effect::Blast)].size());
+    assert(effectMeshes(2.0f,eye)[size_t(Effect::Lightning)].empty());
+    assert(effectMeshes(4.92f,eye)[size_t(Effect::Lightning)].size()==initial[size_t(Effect::Lightning)].size());
     for(Effect a:{Effect::Fire,Effect::Blast,Effect::Water,Effect::Lightning,Effect::Smoke})
         for(Effect b:{Effect::Fire,Effect::Blast,Effect::Water,Effect::Lightning,Effect::Smoke})
             if(a!=b)assert(length(effectOrigin(a)-effectOrigin(b))>3);

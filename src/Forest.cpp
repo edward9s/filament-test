@@ -67,6 +67,7 @@ void Forest::load(const AssetReader& read) {
     auto meshes=generate();
     for(auto& mesh:meshes) {
         if(mesh.indices.empty()) continue;
+        if(mesh.vertices.size()>65536)throw std::runtime_error("Forest batch exceeds 16-bit vertex limit");
         float3 lo{std::numeric_limits<float>::max()},hi{-std::numeric_limits<float>::max()};
         for(const auto& v:mesh.vertices) {lo=min(lo,v.position);hi=max(hi,v.position);}
         // Wind remains within this expanded box, so moving foliage is never culled early.
@@ -78,13 +79,13 @@ void Forest::load(const AssetReader& read) {
             .attribute(VertexAttribute::COLOR,0,VertexBuffer::AttributeType::FLOAT4,offsetof(Vertex,color),sizeof(Vertex)).build(engine_);
         vertices_.push_back(vb);
         auto* ib=IndexBuffer::Builder().indexCount(uint32_t(mesh.indices.size()))
-            .bufferType(IndexBuffer::IndexType::UINT).build(engine_);indices_.push_back(ib);
+            .bufferType(IndexBuffer::IndexType::USHORT).build(engine_);indices_.push_back(ib);
         auto* v=new std::vector<Vertex>(std::move(mesh.vertices));
         vb->setBufferAt(engine_,0,VertexBuffer::BufferDescriptor(v->data(),v->size()*sizeof(Vertex),
             [](void*,size_t,void* u){delete static_cast<std::vector<Vertex>*>(u);},v));
-        auto* i=new std::vector<uint32_t>(std::move(mesh.indices));
-        ib->setBuffer(engine_,IndexBuffer::BufferDescriptor(i->data(),i->size()*sizeof(uint32_t),
-            [](void*,size_t,void* u){delete static_cast<std::vector<uint32_t>*>(u);},i));
+        auto* i=new std::vector<uint16_t>(mesh.indices.begin(),mesh.indices.end());
+        ib->setBuffer(engine_,IndexBuffer::BufferDescriptor(i->data(),i->size()*sizeof(uint16_t),
+            [](void*,size_t,void* u){delete static_cast<std::vector<uint16_t>*>(u);},i));
         auto e=utils::EntityManager::get().create();entities_.push_back(e);
         auto result=RenderableManager::Builder(1).boundingBox({(lo+hi)*.5f,(hi-lo)*.5f})
             .material(0,instances_[size_t(mesh.surface)]).geometry(0,RenderableManager::PrimitiveType::TRIANGLES,vb,ib)

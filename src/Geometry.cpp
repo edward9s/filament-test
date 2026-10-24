@@ -5,6 +5,9 @@
 #include <cmath>
 #include <map>
 #include <tuple>
+#include <bit>
+#include <stdexcept>
+#include <unordered_map>
 
 namespace forest {
 namespace {
@@ -209,6 +212,29 @@ struct Builder {
     }
 };
 }
+void compact(Mesh& mesh) {
+    using Key=std::array<uint32_t,13>;
+    struct Hash {
+        size_t operator()(const Key& key) const noexcept {
+            uint64_t value=1469598103934665603ull;
+            for(auto word:key)value=(value^word)*1099511628211ull;
+            return size_t(value);
+        }
+    };
+    static_assert(sizeof(Vertex)==sizeof(Key));
+    std::unordered_map<Key,uint32_t,Hash> unique;
+    unique.reserve(mesh.vertices.size());
+    std::vector<Vertex> vertices;
+    vertices.reserve(mesh.vertices.size());
+    for(auto& index:mesh.indices) {
+        if(index>=mesh.vertices.size())throw std::invalid_argument("Mesh index outside vertex buffer");
+        const auto& vertex=mesh.vertices[index];
+        auto [entry,inserted]=unique.try_emplace(std::bit_cast<Key>(vertex),uint32_t(vertices.size()));
+        if(inserted)vertices.push_back(vertex);
+        index=entry->second;
+    }
+    mesh.vertices=std::move(vertices);
+}
 float elevation(float x,float z) {
     float hills=.36f*std::sin(x*.24f)*std::cos(z*.18f)+.12f*std::sin(x*.7f+z*.35f);
     // Flat ruin footprint blends into the forest floor.
@@ -292,7 +318,7 @@ std::vector<Mesh> generate() {
     // Raised spring feeding the separate flowing-water display.
     b.rock({3.5f,elevation(3.5f,3.5f)+.45f,3.5f},{.55f,.8f,.55f});
     std::vector<Mesh> result;
-    for(auto& [key,m]:b.batches) result.push_back(std::move(m));
+    for(auto& [key,m]:b.batches) {compact(m);result.push_back(std::move(m));}
     return result;
 }
 }
