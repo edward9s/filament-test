@@ -40,7 +40,12 @@ find_package(SDL3 REQUIRED CONFIG COMPONENTS SDL3-static
 
 add_library(main SHARED src/main.cpp src/Forest.cpp src/Geometry.cpp src/FpsHud.cpp src/Effects.cpp src/EffectsGeometry.cpp)
 target_include_directories(main PRIVATE "${FILAMENT_SDK}/include")
-target_compile_options(main PRIVATE -Wall -Wextra)
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.deps/headers/include/bluevk/BlueVK.h")
+    message(FATAL_ERROR "Missing pinned Filament platform headers. Run scripts/download-deps.sh.")
+endif()
+target_include_directories(main SYSTEM PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/.deps/headers/include")
+# The prebuilt Filament platform classes have no RTTI; derived platforms must match.
+target_compile_options(main PRIVATE -Wall -Wextra -fno-rtti)
 
 # Filament is distributed as a set of static libraries with circular references.
 # Link as a single group, without rebuilding Filament. Dead stripping will discard

@@ -64,11 +64,19 @@ logcat, and no fallback changes the requested test backend.
 
 On the Tab S8 / Adreno 730 report, Vulkan device selection and the five-image swapchain
 both succeeded before the driver reported GPU command protocol errors and deadlocks.
-This is different from The Forge's application-side three-image limit. Vulkan now disables
+Vulkan disables
 Filament's shared material-uniform batching through `RendererEngine.h`, using individual
 material buffers and staged uploads instead. This is a compatibility workaround pending
 device confirmation, not proof that batching caused the driver fault; record this setting
 when comparing performance. Scene geometry, lighting, effects and postprocessing are unchanged.
+
+Filament 1.78.1 also retries `VK_SUBOPTIMAL_KHR` in its image-acquisition loop and can
+skip presentation indefinitely when the driver repeatedly returns it (as seen in the tablet's
+earlier log). Vulkan defines this result as a successful acquisition of a usable image.
+`SwapPlatform.h` uses that image, including its original index and readiness semaphore;
+out-of-date and error results remain unchanged. Filament still detects size changes and
+recreates the swapchain. The supplied Android platform is owned until the engine is destroyed.
+See the [Vulkan acquisition result contract](https://docs.vulkan.org/refpages/latest/refpages/source/vkAcquireNextImageKHR.html).
 
 For repeatable FPS measurements, wait after each switch for shaders to warm up, use
 identical camera positions and scene conditions, and record multiple runs in each
@@ -194,8 +202,13 @@ Run `python3 tests/particles.py` on Linux with Mesa EGL installed.
 The Android workflow also runs `bash scripts/test-vulkan.sh` using the official matching
 Linux Filament SDK, Clang/libc++ 20 and Mesa lavapipe. It renders 16 complete frames with
 multiple frames in flight, recreates the swapchain halfway through, and verifies GPU
-readback. The same engine factory is used by Android and this test. A software Vulkan
-test cannot verify the Adreno driver or Android surface lifecycle on the tablet.
+readback. A second run injects `VK_SUBOPTIMAL_KHR` after every successful acquisition to
+exercise the actual Filament acquire loop through the same adapter as Android. The pixel
+check examines RGB and variation in the scene center, excluding alpha and the HUD; opaque
+black, a clear color and HUD-only output fail. `tests/pixels.cpp` checks those failure cases.
+The Vulkan platform headers omitted from the SDK are fetched from the matching Filament
+tag by `scripts/download-vulkan.py`, with every Git blob ID verified. The platform
+subclasses use `-fno-rtti`, matching the prebuilt SDK. A software Vulkan test cannot verify the Adreno driver or Android surface lifecycle on the tablet.
 
 Geometry checks cover determinism, finite coordinates/UVs/tangents, normalized tangent frames,
 index bounds, degenerate triangles, ground winding, layer presence and mobile geometry budgets.

@@ -2,6 +2,10 @@
 #include "FpsHud.h"
 #include "Effects.h"
 #include "RendererEngine.h"
+#include "SwapPlatform.h"
+#include "Pixels.h"
+#include <backend/platforms/VulkanPlatformLinux.h>
+#include <atomic>
 #include <chrono>
 #include <filament/Camera.h>
 #include <filament/Renderer.h>
@@ -13,16 +17,39 @@
 #include <algorithm>
 #include <stdexcept>
 #include <thread>
+#include <memory>
+
+// Exercise the real Filament acquire loop with a usable image and a SUBOPTIMAL result.
+// A headless ICD otherwise never reproduces Android's surface-orientation condition.
+class SuboptimalPlatform : public filament::backend::VulkanPlatformLinux {
+public:
+    std::atomic<unsigned> injected{0};
+    VkResult acquire(SwapChainPtr swap, ImageSyncData* image) override {
+        const auto result=VulkanPlatformLinux::acquire(swap,image);
+        if(result!=VK_SUCCESS) return result;
+        ++injected;
+        return VK_SUBOPTIMAL_KHR;
+    }
+};
 // Optional Linux smoke render. OpenGL needs Xvfb; Vulkan can use Mesa lavapipe headlessly.
 // Optional first argument freezes scene time (e.g. 0.3 for a strike, 1.8 for its pause).
 // Optional second argument chooses opengl (default) or vulkan.
+// Optional third argument: suboptimal (regression) or raw-suboptimal (unfixed control).
 int main(int argc,char** argv) {
     const float seconds=argc>1?std::stof(argv[1]):.3f;
     using namespace filament;
     const std::string backendName=argc>2?argv[2]:"opengl";
     if(backendName!="opengl" && backendName!="vulkan")throw std::runtime_error("Unknown renderer backend");
     const auto backendChoice=backendName=="vulkan"?backend::Backend::VULKAN:backend::Backend::OPENGL;
-    Engine* e=forest::createRendererEngine(backendChoice);
+    const std::string mode=argc>3?argv[3]:"normal";
+    if(mode!="normal" && mode!="suboptimal" && mode!="raw-suboptimal")
+        throw std::runtime_error("Unknown swapchain test mode");
+    if(mode!="normal" && backendChoice!=backend::Backend::VULKAN)
+        throw std::runtime_error("Suboptimal test requires Vulkan");
+    std::unique_ptr<SuboptimalPlatform> platform;
+    if(mode=="suboptimal")platform=std::make_unique<forest::SwapPlatform<SuboptimalPlatform>>();
+    if(mode=="raw-suboptimal")platform=std::make_unique<SuboptimalPlatform>();
+    Engine* e=forest::createRendererEngine(backendChoice,platform.get());
     if(!e)throw std::runtime_error("Renderer engine unavailable");
     auto* r=e->createRenderer();auto* s=e->createScene();auto* v=e->createView();
     auto ce=utils::EntityManager::get().create();auto* c=e->createCamera(ce);
@@ -65,8 +92,8 @@ int main(int argc,char** argv) {
         }
         // Keep multiple frames in flight, as the Android app does. Wait only for final readback.
         e->flushAndWait();
-        if(*std::max_element(pixels.begin(),pixels.end())==0)
-            throw std::runtime_error("No pixels read back from Filament");
+        if(!hasScene(pixels,1280,720))
+            throw std::runtime_error("Scene RGB readback is black or uniform (alpha/HUD excluded)");
         std::ofstream output(".generated/forest-preview.ppm",std::ios::binary);
         output<<"P6\n1280 720\n255\n";
         for(size_t i=0;i<pixels.size();i+=4)output.write(reinterpret_cast<const char*>(pixels.data()+i),3);
@@ -74,6 +101,7 @@ int main(int argc,char** argv) {
     }
     e->destroy(swap);e->destroy(v);e->destroy(s);e->destroy(r);e->destroyCameraComponent(ce);
     utils::EntityManager::get().destroy(ce);Engine::destroy(&e);
-    std::cout<<backendName<<": 16 rendered frames and GPU readback passed\n";
+    if(platform && platform->injected==0)throw std::runtime_error("SUBOPTIMAL was never exercised");
+    std::cout<<backendName<<" "<<mode<<": 16 rendered frames and scene RGB readback passed\n";
 }
 

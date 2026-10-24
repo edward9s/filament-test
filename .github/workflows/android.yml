@@ -118,6 +118,8 @@ jobs:
         run: |
           sudo apt-get install -y --no-install-recommends \
             clang-20 libc++-20-dev libc++abi-20-dev mesa-vulkan-drivers
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror tests/pixels.cpp -o /tmp/pixels-test
+          /tmp/pixels-test
           bash scripts/test-vulkan.sh
 
       - name: Build signed Android arm64 release APK

@@ -6,8 +6,8 @@ cd "$(dirname "$0")/.."
 host=.deps/host/filament
 test -s "$host/lib/x86_64/libfilament.a"
 mkdir -p .generated/tests
-"${CXX:-clang++-20}" -std=c++20 -O2 -stdlib=libc++ -Wall -Wextra -Werror \
-    -isystem "$host/include" -Isrc tests/render.cpp src/Forest.cpp src/Geometry.cpp \
+"${CXX:-clang++-20}" -std=c++20 -O2 -stdlib=libc++ -fno-rtti -Wall -Wextra -Werror \
+    -isystem "$host/include" -isystem .deps/headers/include -Isrc tests/render.cpp src/Forest.cpp src/Geometry.cpp \
     src/FpsHud.cpp src/Effects.cpp src/EffectsGeometry.cpp \
     -Wl,--start-group "$host"/lib/x86_64/*.a -Wl,--end-group -Wl,--gc-sections \
     -lc++abi -lpthread -ldl -l:libX11.so.6 -o .generated/tests/render
@@ -19,3 +19,4 @@ if [[ -z "${VK_ICD_FILENAMES:-}" ]]; then
     export VK_ICD_FILENAMES="${icds[0]}"
 fi
 timeout 240 .generated/tests/render 0.3 vulkan
+timeout 240 .generated/tests/render 0.3 vulkan suboptimal

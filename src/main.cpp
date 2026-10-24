@@ -4,6 +4,8 @@
 #include "FpsHud.h"
 #include "Effects.h"
 #include "RendererEngine.h"
+#include "SwapPlatform.h"
+#include <backend/platforms/VulkanPlatformAndroid.h>
 #include <filament/Camera.h>
 #include <filament/Renderer.h>
 #include <filament/SwapChain.h>
@@ -39,7 +41,9 @@ public:
     bool consumeBackendSwitch() { return std::exchange(switchRequested_,false); }
     void initialize() {
         SDL_Log("Initializing Filament %s", backend_==backend::Backend::VULKAN?"Vulkan":"OpenGL ES");
-        engine_=forest::createRendererEngine(backend_);
+        if(backend_==backend::Backend::VULKAN)
+            platform_=std::make_unique<forest::SwapPlatform<backend::VulkanPlatformAndroid>>();
+        engine_=forest::createRendererEngine(backend_,platform_.get());
         if(!engine_) throw std::runtime_error(backend_==backend::Backend::VULKAN
             ? "Filament Vulkan initialization failed (check Android Vulkan support and SDK)"
             : "Filament OpenGL ES initialization failed");
@@ -195,6 +199,8 @@ private:
     void orbit(float x,float y) {yaw_-=x*4;pitch_=std::clamp(pitch_+y*2,.03f,.85f);}
     SDL_Window* window_;
     backend::Backend backend_;
+    // The supplied platform must outlive Engine::destroy() in this object\'s destructor.
+    std::unique_ptr<backend::Platform> platform_;
     Engine* engine_=nullptr;
     Renderer* renderer_=nullptr;
     Scene* scene_=nullptr;
