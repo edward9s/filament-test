@@ -36,13 +36,17 @@ fragment {
         highp float emission=0.0;
         highp vec3 color=tint.rgb;
         if(materialParams.kind==0) {
-            highp float n=turbulence(uv*vec2(4,5)-vec2(0,materialParams.time*2.8));
             highp float taper=1.0-uv.y*0.65;
-            mask=(1.0-smoothstep(0.15,1.0,length(vec2(p.x/taper,p.y))))*smoothstep(0.15,0.65,n);
+            highp float envelope=1.0-smoothstep(0.15,1.0,length(vec2(p.x/taper,p.y)));
+            if(envelope*tint.a<0.003) discard;
+            highp float n=turbulence(uv*vec2(4,5)-vec2(0,materialParams.time*2.8));
+            mask=envelope*smoothstep(0.15,0.65,n);
             emission=48000.0;
         } else if(materialParams.kind==1) {
+            highp float envelope=1.0-smoothstep(0.35,1.0,length(p));
+            if(envelope*tint.a<0.003) discard;
             highp float n=turbulence(uv*5.0-vec2(materialParams.time*0.6));
-            mask=(1.0-smoothstep(0.35,1.0,length(p)))*smoothstep(0.1,0.7,n);
+            mask=envelope*smoothstep(0.1,0.7,n);
             color*=mix(0.35,1.0,n);
             emission=60000.0;
         } else if(materialParams.kind==2) {
@@ -53,8 +57,10 @@ fragment {
             color=mix(color,vec3(0.92,0.96,1.0),core);
             emission=280000.0*(0.3+core*0.7);
         } else {
+            highp float envelope=1.0-smoothstep(0.25,1.0,length(p));
+            if(envelope*tint.a<0.003) discard;
             highp float n=turbulence(uv*4.0+vec2(materialParams.time*0.12,-materialParams.time*0.2));
-            mask=(1.0-smoothstep(0.25,1.0,length(p)))*smoothstep(0.12,0.7,n);
+            mask=envelope*smoothstep(0.12,0.7,n);
             color*=0.5+0.9*n+0.25*uv.y;
         }
         highp float alpha=clamp(mask*tint.a,0.0,1.0);

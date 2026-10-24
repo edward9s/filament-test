@@ -22,7 +22,7 @@ Linux software renderer, not a phone.
 - Top-left FPS overlay, updated every half second from submitted frames. Skipped frames count
   as elapsed time; backgrounding and surface changes reset the measurement.
 - Deterministic generation with spatial/material batching and frustum culling; approximately
-  386,000 triangles, 232 batches and 61 MiB of vertex/index data before GPU driver overhead.
+  386,000 triangles, 232 batches and 57 MiB of vertex/index data before GPU driver overhead.
   Texture data is about 53 MiB including mipmaps, plus environment maps and render targets.
 - One finger rotates the camera around the ruin; two fingers pinch to zoom. Mouse drag/wheel also work.
   This is an orbiting scene viewer; it does not include walking physics or collision detection.
@@ -32,12 +32,36 @@ Linux software renderer, not a phone.
   Fire, explosion and lightning illuminate nearby surfaces. Explosion repeats every 5.4 seconds;
   lightning every 4.8 seconds. These are visual effects without damage or fluid physics.
   The effects add 583 animated quads (1,166 triangles), six batches and about 126 KiB of vertex/index
-  data; buffer sizes stay fixed while positions update with time and the camera.
+  data; buffers keep fixed capacity while visible positions update with time and the camera.
+  Fully transparent explosion and lightning batches skip geometry generation, uploads and draws.
 - Assets are bundled in the APK. No network connection is needed while viewing the scene.
 
 The visual target is a realistic forest ruin. Architecture and vegetation are procedural geometry;
 this does not contain scanned buildings or production-quality scanned tree models. Actual image
 quality and frame rate must be evaluated on the target phone.
+
+## Performance
+
+Static batches share only bit-identical vertices and use 16-bit indices. Triangle order, UVs,
+tangent frames and colors are preserved. Current mesh payload drops from 64,784,496 to 59,593,916
+bytes (8.0%); batches that exceed the 16-bit vertex limit fail early. Vertex indexing adds
+one-time CPU work during scene loading; it does not run each frame. Particle shaders reject
+transparent borders before evaluating noise. Unlit particles do not rebuild unused tangent frames.
+
+The CPU effect benchmark simulates 1,800 frames per trial and reports the median of seven trials.
+A Linux comparison measured 103.2 → 68.7 µs per frame; this measures effect mesh generation only,
+not total frame time or Android FPS. The 15 GLES particle readbacks at five kinds and three times
+were byte-identical before/after the shader change; expanded static triangle attributes and all
+visible effect positions/UVs/colors were also compared exactly. Lighting, shadow cascades, wind,
+particle counts when visible, post-processing and resolution settings are retained.
+
+Run the reproducible CPU benchmark with the pinned SDK headers:
+
+```sh
+g++ -std=c++20 -O2 -isystem .deps/host/filament/include -Isrc \
+  tests/benchmark.cpp src/EffectsGeometry.cpp src/Geometry.cpp -o /tmp/forest-benchmark
+/tmp/forest-benchmark
+```
 
 ## Build
 

@@ -19,6 +19,7 @@ private:
         filament::IndexBuffer* indices=nullptr;
         filament::MaterialInstance* material=nullptr;
         size_t count=0;
+        bool visible=true;
     };
     filament::Engine& engine_;
     filament::Scene& scene_;
