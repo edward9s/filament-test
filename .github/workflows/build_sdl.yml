@@ -1,0 +1,320 @@
+name: Build SDL3 static SDK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sdl3-static-release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check upstream and published SDL3 versions
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build: ${{ steps.version.outputs.build }}
+    steps:
+      - name: Compare latest stable SDL3 with the dependency release
+        id: version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: sdl3-static
+        run: |
+          set -euo pipefail
+
+          upstream_tag="$(gh api repos/libsdl-org/SDL/releases/latest --jq '.tag_name')"
+          if [[ ! "$upstream_tag" =~ ^release-([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "::error::Unexpected upstream SDL tag: $upstream_tag"
+            exit 1
+          fi
+          export VERSION="${BASH_REMATCH[1]}"
+
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > release.json 2> release.err; then
+            export RELEASE_EXISTS=true
+          elif grep -q 'HTTP 404' release.err; then
+            export RELEASE_EXISTS=false
+          else
+            cat release.err >&2
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          upstream = tuple(map(int, version.split(".")))
+          expected = {
+              f"SDL3-{version}-windows-x64-msvc-static.tar.gz",
+              f"SDL3-{version}-macos-universal-static.tar.gz",
+              f"SDL3-{version}-android-arm64-v8a-static.tar.gz",
+              "SHA256SUMS",
+          }
+
+          if os.environ["RELEASE_EXISTS"] == "false":
+              build = True
+              reason = "No SDL3 dependency release exists"
+          else:
+              release = json.loads(Path("release.json").read_text())
+              body = release.get("body") or ""
+              match = re.search(r"^SDL_VERSION=(\d+\.\d+\.\d+)$", body, re.MULTILINE)
+              if not match:
+                  raise SystemExit("SDL3 dependency release is missing SDL_VERSION metadata")
+              current_version = match.group(1)
+              current = tuple(map(int, current_version.split(".")))
+              if current > upstream:
+                  build = False
+                  reason = f"Published SDL3 {current_version} is newer than upstream {version}; refusing downgrade"
+              elif current < upstream:
+                  build = True
+                  reason = f"Upgrade SDL3 {current_version} -> {version}"
+              else:
+                  found = {item["name"] for item in release.get("assets", []) if item.get("size", 0) > 0}
+                  if found != expected:
+                      raise SystemExit(
+                          "SDL3 release is incomplete or has unexpected assets; "
+                          f"expected {sorted(expected)}, found {sorted(found)}"
+                      )
+                  build = False
+                  reason = f"SDL3 {version} and all four assets already exist"
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"version={version}", file=output)
+              print(f"build={str(build).lower()}", file=output)
+          print(reason)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              print(f"SDL3 upstream: {version}\n\n{reason}", file=summary)
+          PY
+
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64-msvc
+            runner: windows-2022
+          - platform: macos-universal
+            runner: macos-15
+          - platform: android-arm64-v8a
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - name: Download matching official SDL3 source release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p source
+          gh release download "release-$VERSION" \
+            --repo libsdl-org/SDL \
+            --pattern "SDL3-$VERSION.tar.gz" \
+            --dir source
+          tar -xzf "source/SDL3-$VERSION.tar.gz" -C source
+          test -s "source/SDL3-$VERSION/CMakeLists.txt"
+
+      - name: Build static SDL3 for Windows x64 (MSVC)
+        if: matrix.platform == 'windows-x64-msvc'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S "source/SDL3-$VERSION" -B build \
+            -G "Visual Studio 17 2022" -A x64 \
+            -DSDL_SHARED=OFF -DSDL_STATIC=ON \
+            -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF \
+            -DSDL_EXAMPLES=OFF -DSDL_INSTALL=ON
+          cmake --build build --config Release --parallel 4
+          cmake --install build --config Release --prefix "$PWD/stage"
+          test -s stage/lib/SDL3-static.lib
+
+      - name: Build static SDL3 for macOS universal (x86_64 + arm64)
+        if: matrix.platform == 'macos-universal'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S "source/SDL3-$VERSION" -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DSDL_SHARED=OFF -DSDL_STATIC=ON \
+            -DSDL_FRAMEWORK=OFF \
+            -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF \
+            -DSDL_EXAMPLES=OFF -DSDL_INSTALL=ON
+          cmake --build build --parallel 4
+          cmake --install build --prefix "$PWD/stage"
+          test -s stage/lib/libSDL3.a
+          archs="$(xcrun lipo -archs stage/lib/libSDL3.a)"
+          [[ " $archs " == *" arm64 "* && " $archs " == *" x86_64 "* ]]
+
+      - name: Set up Android SDK
+        if: matrix.platform == 'android-arm64-v8a'
+        uses: android-actions/setup-android@v3
+
+      - name: Install matching Android NDK
+        if: matrix.platform == 'android-arm64-v8a'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager "ndk;30.0.16248370"
+          test -f "$ANDROID_HOME/ndk/30.0.16248370/build/cmake/android.toolchain.cmake"
+
+      - name: Build static SDL3 for Android arm64
+        if: matrix.platform == 'android-arm64-v8a'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S "source/SDL3-$VERSION" -B build -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/30.0.16248370/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-26 \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSDL_SHARED=OFF -DSDL_STATIC=ON \
+            -DSDL_ANDROID_JAR=OFF \
+            -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF \
+            -DSDL_EXAMPLES=OFF -DSDL_INSTALL=ON
+          cmake --build build --parallel 4
+          cmake --install build --prefix "$PWD/stage"
+          test -s stage/lib/libSDL3.a
+
+          # SDLActivity and JNI classes must match the native SDL3 build.
+          mkdir -p stage/android
+          cp -R "source/SDL3-$VERSION/android-project/app/src/main/java" stage/android/java
+          test -s stage/android/java/org/libsdl/app/SDLActivity.java
+
+      - name: Package SDK and verify static-only native libraries
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          cp "source/SDL3-$VERSION/LICENSE.txt" stage/SDL3-LICENSE.txt
+          printf 'SDL_VERSION=%s\nPLATFORM=%s\n' "$VERSION" "$PLATFORM" > stage/BUILD-INFO.txt
+
+          if find stage -type f \( -name '*.so' -o -name '*.dylib' -o -name '*.dll' \) -print -quit | grep -q .; then
+            echo "::error::Unexpected dynamic library in static SDK"
+            exit 1
+          fi
+
+          mkdir -p dist
+          tar -czf "dist/SDL3-$VERSION-$PLATFORM-static.tar.gz" -C stage .
+          test -s "dist/SDL3-$VERSION-$PLATFORM-static.tar.gz"
+
+      - name: Transfer SDK to publishing job
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdl3-${{ matrix.platform }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish single rolling SDL3 dependency release
+    needs: [check, build]
+    if: needs.check.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: sdl3-static
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - name: Collect all three platforms
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sdl3-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify packages and calculate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          files=(
+            "SDL3-$VERSION-windows-x64-msvc-static.tar.gz"
+            "SDL3-$VERSION-macos-universal-static.tar.gz"
+            "SDL3-$VERSION-android-arm64-v8a-static.tar.gz"
+          )
+          for file in "${files[@]}"; do
+            test -s "$file"
+            tar -tzf "$file" >/dev/null
+          done
+          [[ "$(find . -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 3 ]]
+          sha256sum "${files[@]}" > SHA256SUMS
+
+      - name: Publish assets under the same fixed release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-notes.txt <<EOF
+          SDL_VERSION=$VERSION
+
+          Official SDL3 stable source: https://github.com/libsdl-org/SDL/releases/tag/release-$VERSION
+
+          Static C/C++ SDK builds:
+          - Windows x64 / MSVC: SDL3-static.lib
+          - macOS universal (x86_64 + arm64): libSDL3.a
+          - Android arm64-v8a, API 26, NDK 30.0.16248370: libSDL3.a plus matching Java sources
+
+          Each archive includes headers, install metadata and license. SHA256SUMS covers all three archives.
+          This is a separate rolling dependency release; the test-build APK release is preserved.
+          EOF
+
+          shopt -s nullglob
+          assets=(dist/*.tar.gz dist/SHA256SUMS)
+          [[ "${#assets[@]}" -eq 4 ]]
+
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > existing-release.json 2> release-error.txt; then
+            # Upload all fresh archives before replacing the checksum file.
+            gh release upload "$RELEASE_TAG" dist/*.tar.gz \
+              --clobber --repo "$GITHUB_REPOSITORY"
+            gh release upload "$RELEASE_TAG" dist/SHA256SUMS \
+              --clobber --repo "$GITHUB_REPOSITORY"
+
+            jq -r --arg version "$VERSION" '
+              .assets[] |
+              select(
+                .name != ("SDL3-" + $version + "-windows-x64-msvc-static.tar.gz") and
+                .name != ("SDL3-" + $version + "-macos-universal-static.tar.gz") and
+                .name != ("SDL3-" + $version + "-android-arm64-v8a-static.tar.gz") and
+                .name != "SHA256SUMS"
+              ) | .id
+            ' existing-release.json > old-assets.txt
+            while IFS= read -r asset_id; do
+              [[ -n "$asset_id" ]] || continue
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" >/dev/null
+            done < old-assets.txt
+
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "SDL3 $VERSION static SDK (Windows, macOS, Android)" \
+              --notes-file release-notes.txt \
+              --prerelease --latest=false
+          elif grep -q 'HTTP 404' release-error.txt; then
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "SDL3 $VERSION static SDK (Windows, macOS, Android)" \
+              --notes-file release-notes.txt \
+              --prerelease --latest=false
+          else
+            cat release-error.txt >&2
+            exit 1
+          fi
+
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json name,tagName,assets --jq '{name,tagName,assets:[.assets[].name]}'
