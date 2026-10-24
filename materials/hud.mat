@@ -6,7 +6,10 @@ material {
     depthCulling : false,
     culling : none,
     requires : [ uv0 ],
-    parameters : [ { type : float, name : fps } ]
+    parameters : [
+        { type : float, name : fps },
+        { type : float, name : vulkan }
+    ]
 }
 fragment {
     // Original 5x7 bitmap glyphs. No font package or secondary graphics context.
@@ -25,13 +28,17 @@ fragment {
         if (code == 11) return int[7](30,17,17,30,16,16,16)[row]; // P
         if (code == 12) return int[7](15,16,16,14,1,1,30)[row]; // S
         if (code == 13) return row == 3 ? 14 : 0;
+        if (code == 14) return int[7](17,17,17,17,17,10,4)[row]; // V
+        if (code == 15) return int[7](17,18,20,24,20,18,17)[row]; // K
+        if (code == 16) return int[7](14,17,16,23,17,17,14)[row]; // G
+        if (code == 17) return int[7](16,16,16,16,16,16,31)[row]; // L
         return 0;
     }
     void material(inout MaterialInputs material) {
         prepareMaterial(material);
-        ivec2 p = ivec2(floor(getUV0() * vec2(54.0,15.0))) - ivec2(6,4);
+        ivec2 p = ivec2(floor(getUV0() * vec2(72.0,15.0))) - ivec2(6,4);
         material.baseColor = vec4(vec3(0.025) * 0.8, 0.8);
-        if (p.x < 0 || p.x >= 42 || p.y < 0 || p.y >= 7) return;
+        if (p.x < 0 || p.x >= 60 || p.y < 0 || p.y >= 7) return;
         int cell = p.x / 6;
         int column = p.x % 6;
         int value = int(clamp(floor(materialParams.fps + 0.5),0.0,999.0));
@@ -40,8 +47,10 @@ fragment {
         if (cell == 4 && value >= 100) code = value / 100;
         if (cell == 5 && value >= 10) code = (value / 10) % 10;
         if (cell == 6) code = value % 10;
-        if (cell >= 4 && materialParams.fps < 0.0) code = 13;
+        if (cell >= 4 && cell <= 6 && materialParams.fps < 0.0) code = 13;
+        if (cell == 8) code = materialParams.vulkan > 0.5 ? 14 : 16;
+        if (cell == 9) code = materialParams.vulkan > 0.5 ? 15 : 17;
         if (column < 5 && (rowBits(code,p.y) & (1 << (4-column))) != 0)
-            material.baseColor = vec4(cell < 3 ? vec3(0.65,0.85,0.28) : vec3(1.0),1.0);
+            material.baseColor = vec4(cell < 3 ? vec3(0.65,0.85,0.28) : cell >= 8 ? vec3(0.45,0.85,1.0) : vec3(1.0),1.0);
     }
 }
