@@ -1,4 +1,4 @@
-name: Build pinned Filament fork SDK
+name: Build Filament static SDK
 
 on:
   workflow_call:
@@ -8,55 +8,108 @@ permissions:
   contents: write
 
 concurrency:
-  group: filament-sdk-${{ github.repository }}
+  group: filament-static-release
   cancel-in-progress: false
 
 jobs:
-  sdk:
+  check:
+    name: Check the pinned source and published SDK
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    outputs:
+      build: ${{ steps.release.outputs.build }}
+      repository: ${{ steps.source.outputs.repository }}
+      revision: ${{ steps.source.outputs.revision }}
+      ndk: ${{ steps.source.outputs.ndk }}
     env:
       GH_TOKEN: ${{ github.token }}
-      CC: clang-18
-      CXX: clang++-18
+      TAG: filament-static
     steps:
-      - name: Checkout application dependency pin
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           persist-credentials: false
-
       - name: Test SDK checksum and source validation
         run: python3 tests/sdk.py
-
-      - name: Read pinned fork revision
+      - name: Read source pin
         id: source
         run: python3 scripts/download-filament.py --info >> "$GITHUB_OUTPUT"
-
-      - name: Check immutable SDK release
-        id: check
-        env:
-          TAG: ${{ steps.source.outputs.tag }}
-          REVISION: ${{ steps.source.outputs.revision }}
+      - name: Check the fixed dependency release
+        id: release
         run: |
           set -euo pipefail
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body,assets > "$RUNNER_TEMP/sdk-release.json"; then
-            python3 - "$RUNNER_TEMP/sdk-release.json" "$REVISION" <<'PY'
-          import json,sys
-          release=json.load(open(sys.argv[1]))
-          assert 'SOURCE_COMMIT='+sys.argv[2] in release['body'], 'SDK release source pin mismatch'
-          assert {x['name'] for x in release['assets']} == {'filament-linux.tgz','filament-android-arm64.tgz','SHA256SUMS'}, 'Incomplete SDK release'
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body,assets,isDraft > release.json 2> release.err; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+            python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          from scripts.filament_sdk import lock, release_ready
+          release=json.load(open('release.json'))
+          build=not release_ready(release,lock(Path.cwd()))
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+              print('build='+str(build).lower(),file=output)
           PY
-            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          elif grep -Eq 'HTTP 404|release not found' release.err; then
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+            echo 'build=true' >> "$GITHUB_OUTPUT"
           else
-            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            cat release.err >&2
+            exit 1
+          fi
+      - name: Prepare the release as a draft until all SDKs pass
+        if: steps.release.outputs.build == 'true'
+        env:
+          RELEASE_EXISTS: ${{ steps.release.outputs.exists }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from scripts.filament_sdk import FIELDS,lock
+          config=lock(Path.cwd())
+          Path('sdk-notes.txt').write_text(''.join(FIELDS[k]+'='+v+'\n' for k,v in config.items()))
+          PY
+          if [[ "$RELEASE_EXISTS" == true ]]; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=true \
+              --title 'Filament static SDK (build pending)' --notes-file sdk-notes.txt
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --draft --prerelease --latest=false \
+              --title 'Filament static SDK (build pending)' --notes-file sdk-notes.txt
           fi
 
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-android
+            runner: ubuntu-24.04
+          - platform: macos-universal
+            runner: macos-15
+          - platform: windows-x64-msvc
+            runner: windows-2022
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: filament-static
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Checkout exact fork source
-        if: steps.check.outputs.ready != 'true'
         uses: actions/checkout@v4
         with:
-          repository: ${{ steps.source.outputs.repository }}
-          ref: ${{ steps.source.outputs.revision }}
+          repository: ${{ needs.check.outputs.repository }}
+          ref: ${{ needs.check.outputs.revision }}
           path: filament-source
           persist-credentials: false
           sparse-checkout: |
@@ -68,39 +121,101 @@ jobs:
             tools
             samples
             test
-
-      - name: Install host build dependencies
-        if: steps.check.outputs.ready != 'true'
+      - name: Install Linux build dependencies
+        if: matrix.platform == 'linux-android'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build cmake clang-18 \
             libc++-18-dev libc++abi-18-dev libx11-dev libx11-xcb-dev libxcb1-dev \
             libxcomposite-dev libxi-dev libxrandr-dev libxcursor-dev libxinerama-dev \
             libegl1-mesa-dev libgl1-mesa-dev
-
       - name: Install matching Android NDK
-        if: steps.check.outputs.ready != 'true'
+        if: matrix.platform == 'linux-android'
         env:
-          NDK_VERSION: ${{ steps.source.outputs.ndk }}
+          NDK_VERSION: ${{ needs.check.outputs.ndk }}
         run: |
           set -euo pipefail
           sdkmanager="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -1)"
+          test -x "$sdkmanager"
           "$sdkmanager" "ndk;$NDK_VERSION"
-
-      - name: Build and test complete Linux and Android SDKs
-        if: steps.check.outputs.ready != 'true'
-        run: bash scripts/build-filament.sh filament-source
-
-      - name: Publish SDK for this source revision
-        if: steps.check.outputs.ready != 'true'
+      - name: Build and test Linux and Android SDKs
+        if: matrix.platform == 'linux-android'
         env:
-          TAG: ${{ steps.source.outputs.tag }}
-          REVISION: ${{ steps.source.outputs.revision }}
+          CC: clang-18
+          CXX: clang++-18
+        run: bash scripts/build-filament.sh filament-source
+      - name: Ensure Ninja is available on macOS
+        if: matrix.platform == 'macos-universal'
+        run: command -v ninja >/dev/null || brew install ninja
+      - name: Build and test native desktop SDK
+        if: matrix.platform != 'linux-android'
+        run: python3 scripts/build-filament-desktop.py filament-source "$PLATFORM"
+      - name: Upload verified SDKs to the draft dependency release
         run: |
           set -euo pipefail
-          notes="$RUNNER_TEMP/sdk-notes.txt"
-          printf 'SOURCE_COMMIT=%s\nSOURCE_REPOSITORY=edward9s/filament\nComplete fork SDK with command-buffer-owned pipelines.\n' "$REVISION" > "$notes"
-          gh release create "$TAG" .generated/sdk/filament-linux.tgz \
-            .generated/sdk/filament-android-arm64.tgz .generated/sdk/SHA256SUMS \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false \
-            --title "Filament fork SDK ${REVISION:0:12}" --notes-file "$notes"
+          gh release upload "$TAG" .generated/sdk/*.tgz .generated/sdk/*.sha256 \
+            --clobber --repo "$GITHUB_REPOSITORY"
+
+  publish:
+    name: Publish all four static SDKs
+    needs: [check, build]
+    if: needs.check.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: filament-static
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download and verify the complete SDK set
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.tgz' --dir dist
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.sha256' --dir dist
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          from scripts.filament_sdk import LAYOUTS
+          expected=set(LAYOUTS)
+          assert {p.name for p in Path('dist').glob('*.tgz')} == expected, 'Unexpected SDK archive set'
+          assert {p.name for p in Path('dist').glob('*.sha256')} == {n+'.sha256' for n in expected}, 'Incomplete SDK checksums'
+          lines=[]
+          for name in sorted(expected):
+              archive=Path('dist',name)
+              digest=hashlib.sha256(archive.read_bytes()).hexdigest()
+              line=f'{digest}  {name}\n'
+              assert Path('dist',name+'.sha256').read_text() == line, 'SDK checksum mismatch: '+name
+              lines.append(line)
+          Path('dist/SHA256SUMS').write_text(''.join(lines))
+          PY
+          for file in dist/*.tgz; do
+            python3 scripts/package-filament.py --verify "$file"
+          done
+      - name: Publish the verified dependency release
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" dist/SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
+          for file in dist/*.sha256; do
+            gh release delete-asset "$TAG" "$(basename "$file")" --yes --repo "$GITHUB_REPOSITORY"
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          from scripts.filament_sdk import FIELDS,lock
+          config=lock(Path.cwd())
+          notes=''.join(FIELDS[k]+'='+v+'\n' for k,v in config.items())
+          notes+='\nRelease-mode static SDKs: Linux x64, Android arm64, macOS universal, Windows x64 MSVC (/MD).\n'
+          notes+='Includes headers and matching host tools; SHA256SUMS covers all four archives.\n'
+          Path('sdk-notes.txt').write_text(notes)
+          PY
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false \
+            --prerelease --latest=false --title 'Filament static SDK (Linux, Android, macOS, Windows)' \
+            --notes-file sdk-notes.txt
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body,assets,isDraft > published.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          from scripts.filament_sdk import lock,release_ready
+          assert release_ready(json.load(open('published.json')),lock(Path.cwd())), 'SDK publication failed verification'
+          PY

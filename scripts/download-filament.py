@@ -1,38 +1,22 @@
 #!/usr/bin/env python3
-"""Consume the complete fork SDK matching filament.json; never mix official libraries."""
+"""Download the pinned static SDK from the single Filament dependency release."""
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
 import tarfile
 import tempfile
 
+from filament_sdk import TAG, host_archive, lock as read_lock, ready, release_ready
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def lock():
-    config = json.loads((ROOT / 'filament.json').read_text())
-    if config['repository'] != 'edward9s/filament' or not re.fullmatch('[0-9a-f]{40}', config['revision']):
-        raise RuntimeError('Invalid Filament source pin')
-    if not re.fullmatch(r'\d+\.\d+\.\d+', config['ndk']):
-        raise RuntimeError('Invalid Filament NDK pin')
-    return config
-
-
-def ready(path, config, archive):
-    info = path / 'SDK-INFO.json'
-    try:
-        metadata = json.loads(info.read_text())
-    except (OSError, ValueError):
-        return False
-    architecture = 'x86_64' if archive == 'filament-linux.tgz' else 'arm64-v8a'
-    return (all(metadata.get(key) == value for key, value in config.items())
-            and metadata.get('archive') == archive
-            and (path / 'include/bluevk/BlueVK.h').is_file()
-            and (path / 'lib' / architecture / 'libfilament.a').is_file())
+    return read_lock(ROOT)
 
 
 def main():
@@ -40,42 +24,47 @@ def main():
     parser.add_argument('--info', action='store_true')
     args = parser.parse_args()
     config = lock()
-    revision = config['revision']
-    tag = 'filament-sdk-' + revision[:12]
     if args.info:
-        for k, v in {**config, 'tag': tag}.items():
-            print(f'{k}={v}')
+        for key, value in {**config, 'tag': TAG}.items():
+            print(f'{key}={value}')
         return
-    import os
-    repository = os.environ.get('GITHUB_REPOSITORY', 'edward9s/filament-test')
-    archives = {'filament-linux.tgz': ROOT / '.deps/host/filament',
+    archives = {host_archive(): ROOT / '.deps/host/filament',
                 'filament-android-arm64.tgz': ROOT / '.deps/filament'}
     if all(ready(path, config, name) for name, path in archives.items()):
         return
+    repository = os.environ.get('GITHUB_REPOSITORY', 'edward9s/filament-test')
+    result = subprocess.run(['gh', 'release', 'view', TAG, '--repo', repository,
+                             '--json', 'body,assets,isDraft'], check=True, capture_output=True, text=True)
+    if not release_ready(json.loads(result.stdout), config):
+        raise RuntimeError('Filament release is not ready for the pinned source; run build_filament.yml')
     with tempfile.TemporaryDirectory() as temporary:
         temporary = Path(temporary)
         for name in [*archives, 'SHA256SUMS']:
-            subprocess.run(['gh', 'release', 'download', tag, '--repo', repository,
+            subprocess.run(['gh', 'release', 'download', TAG, '--repo', repository,
                             '--pattern', name, '--dir', str(temporary)], check=True)
         sums = {}
         for line in (temporary / 'SHA256SUMS').read_text().splitlines():
             digest, name = line.split()
             sums[name] = digest
-        for name, destination in archives.items():
+        # Validate both archives before replacing an installed SDK.
+        extracted = {}
+        for name in archives:
             archive = temporary / name
             if hashlib.sha256(archive.read_bytes()).hexdigest() != sums[name]:
                 raise RuntimeError(f'Filament SDK checksum mismatch: {name}')
-            extracted = temporary / name.removesuffix('.tgz')
+            folder = temporary / name.removesuffix('.tgz')
             with tarfile.open(archive) as package:
-                package.extractall(extracted, filter='data')
-            sdk = extracted / 'filament'
+                package.extractall(folder, filter='data')
+            sdk = folder / 'filament'
             if not ready(sdk, config, name):
                 raise RuntimeError(f'Filament SDK source/architecture mismatch: {name}')
+            extracted[name] = sdk
+        for name, destination in archives.items():
             destination.parent.mkdir(parents=True, exist_ok=True)
             if destination.exists():
                 shutil.rmtree(destination)
-            shutil.move(sdk, destination)
-    print(f'Filament fork SDK ready: {revision}')
+            shutil.move(extracted[name], destination)
+    print(f'Filament fork SDK ready: {config["revision"]}')
 
 
 if __name__ == '__main__':

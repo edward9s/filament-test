@@ -164,7 +164,8 @@ files live in `.generated/` and downloaded dependencies in `.deps/`; neither is 
 Source assets require about 12 MiB; the complete SDK is downloaded separately.
 
 Filament uses the complete fork SDK pinned by `filament.json`. The Android workflow builds
-and saves this SDK on first use of a revision; subsequent runs reuse it. SDL3 is statically linked from
+and saves all four platform SDKs under the fixed `filament-static` Release; subsequent runs
+reuse them when their source metadata matches. SDL3 is statically linked from
 this repository's `sdl3-static` Release. `download-deps.sh` checks the release metadata
 and SHA-256, then installs its static library, headers, CMake package and matching SDL
 Android Java sources in `.deps/sdl3/`. Because this is a private repository, local builds
@@ -270,3 +271,4 @@ first frame, and initialization and swapchain readiness are logged separately.
 Official references: [Filament](https://github.com/google/filament/releases/tag/v1.78.1),
 [SDL3](https://github.com/libsdl-org/SDL/releases/tag/release-3.4.18),
 [asset credits](assets/CREDITS.md).
+
