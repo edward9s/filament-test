@@ -53,6 +53,7 @@ jobs:
           version = os.environ["VERSION"]
           upstream = tuple(map(int, version.split(".")))
           expected = {
+              f"SDL3-{version}-linux-x64-static.tar.gz",
               f"SDL3-{version}-windows-x64-msvc-static.tar.gz",
               f"SDL3-{version}-macos-universal-static.tar.gz",
               f"SDL3-{version}-android-arm64-v8a-static.tar.gz",
@@ -78,13 +79,17 @@ jobs:
                   reason = f"Upgrade SDL3 {current_version} -> {version}"
               else:
                   found = {item["name"] for item in release.get("assets", []) if item.get("size", 0) > 0}
-                  if found != expected:
+                  if found - expected:
                       raise SystemExit(
-                          "SDL3 release is incomplete or has unexpected assets; "
+                          "SDL3 release has unexpected assets; "
                           f"expected {sorted(expected)}, found {sorted(found)}"
                       )
-                  build = False
-                  reason = f"SDL3 {version} and all four assets already exist"
+                  elif found != expected:
+                      build = True
+                      reason = f"Rebuild incomplete SDL3 release: missing {sorted(expected - found)}"
+                  else:
+                      build = False
+                      reason = f"SDL3 {version} and all five assets already exist"
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               print(f"version={version}", file=output)
@@ -130,6 +135,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - platform: linux-x64
+            runner: ubuntu-24.04
           - platform: windows-x64-msvc
             runner: windows-2022
           - platform: macos-universal
@@ -153,6 +160,37 @@ jobs:
             --dir source
           tar -xzf "source/SDL3-$VERSION.tar.gz" -C source
           test -s "source/SDL3-$VERSION/CMakeLists.txt"
+
+      - name: Install Linux desktop dependencies
+        if: matrix.platform == 'linux-x64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config \
+            libasound2-dev libpulse-dev libudev-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev \
+            libxi-dev libxss-dev libxkbcommon-dev libwayland-dev wayland-protocols \
+            libdecor-0-dev libdrm-dev libgbm-dev libegl1-mesa-dev libgl1-mesa-dev
+
+      - name: Build static SDL3 for Linux x64
+        if: matrix.platform == 'linux-x64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S "source/SDL3-$VERSION" -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_LIBDIR=lib \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DSDL_SHARED=OFF -DSDL_STATIC=ON \
+            -DSDL_X11=ON -DSDL_WAYLAND=ON \
+            -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF \
+            -DSDL_EXAMPLES=OFF -DSDL_INSTALL=ON
+          cmake --build build --parallel 4
+          cmake --install build --prefix "$PWD/stage"
+          test -s stage/lib/libSDL3.a
+          test -s stage/include/SDL3/SDL.h
+          test -s stage/lib/cmake/SDL3/SDL3Config.cmake
 
       - name: Build static SDL3 for Windows x64 (MSVC)
         if: matrix.platform == 'windows-x64-msvc'
@@ -269,7 +307,7 @@ jobs:
       RELEASE_TAG: sdl3-static
       VERSION: ${{ needs.check.outputs.version }}
     steps:
-      - name: Download and verify all three platform archives
+      - name: Download and verify all four platform archives
         shell: bash
         run: |
           set -euo pipefail
@@ -281,6 +319,7 @@ jobs:
 
           cd dist
           files=(
+            "SDL3-$VERSION-linux-x64-static.tar.gz"
             "SDL3-$VERSION-windows-x64-msvc-static.tar.gz"
             "SDL3-$VERSION-macos-universal-static.tar.gz"
             "SDL3-$VERSION-android-arm64-v8a-static.tar.gz"
@@ -291,8 +330,8 @@ jobs:
             sha256sum -c "$file.sha256"
             tar -tzf "$file" >/dev/null
           done
-          [[ "$(find . -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 3 ]]
-          [[ "$(find . -maxdepth 1 -type f -name '*.sha256' | wc -l)" -eq 3 ]]
+          [[ "$(find . -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 4 ]]
+          [[ "$(find . -maxdepth 1 -type f -name '*.sha256' | wc -l)" -eq 4 ]]
           sha256sum "${files[@]}" > SHA256SUMS
 
       - name: Publish assets under the same fixed release tag
@@ -305,11 +344,12 @@ jobs:
           Official SDL3 stable source: https://github.com/libsdl-org/SDL/releases/tag/release-$VERSION
 
           Static C/C++ SDK builds:
+          - Linux x64 / Ubuntu 24.04: libSDL3.a (X11 + Wayland)
           - Windows x64 / MSVC: SDL3-static.lib
           - macOS universal (x86_64 + arm64): libSDL3.a
           - Android arm64-v8a, API 26, NDK 30.0.16248370: libSDL3.a plus matching Java sources
 
-          Each archive includes headers, install metadata and license. SHA256SUMS covers all three archives.
+          Each archive includes headers, install metadata and license. SHA256SUMS covers all four archives.
           This is a separate rolling dependency release; the test-build APK release is preserved.
           EOF
 
@@ -321,6 +361,7 @@ jobs:
             jq -r --arg version "$VERSION" '
               .assets[] |
               select(
+                .name != ("SDL3-" + $version + "-linux-x64-static.tar.gz") and
                 .name != ("SDL3-" + $version + "-windows-x64-msvc-static.tar.gz") and
                 .name != ("SDL3-" + $version + "-macos-universal-static.tar.gz") and
                 .name != ("SDL3-" + $version + "-android-arm64-v8a-static.tar.gz") and
@@ -334,7 +375,7 @@ jobs:
 
             gh release edit "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "SDL3 $VERSION static SDK (Windows, macOS, Android)" \
+              --title "SDL3 $VERSION static SDK (Linux, Windows, macOS, Android)" \
               --notes-file release-notes.txt \
               --prerelease --latest=false
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
