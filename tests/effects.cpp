@@ -78,6 +78,21 @@ int main() {
     assert(effectLightIntensity(Effect::Blast,5.41f)>effectLightIntensity(Effect::Blast,2.f));
     assert(effectLightIntensity(Effect::Lightning,.12f)>effectLightIntensity(Effect::Lightning,2.f));
     assert(effectLightIntensity(Effect::Lightning,.3f)>effectLightIntensity(Effect::Lightning,2.f));
+    // Match Godot's local-light / direct-sun ratio at the 3 m masonry reference.
+    // Range-edge attenuation cancels because both lights have a 6 m radius.
+    const float referenceDistance=3.f;
+    const float cutoff=std::pow(1.f-std::pow(referenceDistance/6.f,4.f),2.f);
+    for(float time:{0.f,.12f,.3f,.4f,1.8f,2.5f,4.92f,5.52f,3600.3f}) {
+        const float energies[]={1.2f*(1.f+.13f*std::sin(time*13.f)+.09f*std::sin(time*23.f)),
+            blastAge(time)<2.5f?8.f*std::exp(-blastAge(time)*7.f):0.f,4.f*lightningPulse(time)};
+        const Effect kinds[]={Effect::Fire,Effect::Blast,Effect::Lightning};
+        for(size_t i=0;i<3;++i) {
+            const float filamentRatio=effectLightIntensity(kinds[i],time)*cutoff/
+                (4.f*3.14159265359f*referenceDistance*referenceDistance*110000.f);
+            const float godotRatio=energies[i]*cutoff/(referenceDistance*1.1f);
+            assert(std::abs(filamentRatio-godotRatio)<1e-5f);
+        }
+    }
     bool invalidLight=false;
     try{effectLightIntensity(Effect::Smoke,0);}catch(const std::invalid_argument&){invalidLight=true;}
     assert(invalidLight);

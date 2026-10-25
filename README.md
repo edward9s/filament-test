@@ -113,6 +113,34 @@ frame-count guess to determine whether they are safe to overwrite. Particle sort
 uses stable index merges with cached distances and stack scratch. Geometry, particle
 ordering, vertex attributes and shader precision are preserved.
 
+## Local effects lighting (0.2.2)
+
+Fire, explosion and lightning now follow `godot-test`'s linear light colors, positions
+(one meter above each effect origin), six-meter influence range and energy envelopes.
+Fire uses the same flicker amplitudes; the explosion uses the same faster light decay;
+the lightning light follows the existing double-strike pulse. All three remain native,
+unshadowed Filament point lights.
+
+The local/direct-sun illumination ratio is calibrated at a three-meter reference distance
+using the existing suns: 110,000 lux in Filament and 1.1 energy in Godot. Before range
+cutoff, Filament uses `lumens / (4*pi*r*r)` and Godot's default attenuation uses
+`energy / r`; both use the same `(1-(r/range)^4)^2` range cutoff. Each Godot energy unit
+therefore maps to `4*pi*3*(110000/1.1)` lumens (about 3.77 million). Fire's base is about
+4.52 million lumens and lightning's peak coefficient about 15.08 million lumens. These
+are photometric inputs for the existing daylight exposure, not display brightness values.
+
+This is an approximation around the masonry distance, not an identical attenuation curve:
+at two meters the relative contribution is 1.5 times the Godot reference, at three meters
+it matches, and at four meters it is 0.75 times, before differences in shading and image
+processing. The application keeps Filament's native inverse-square model; no custom light
+shader or fork SDK change is introduced. Android visual comparison remains required.
+
+Stone uses the source roughness map without the previous 0.48 floor, matching Godot's
+material input and retaining stronger highlights where the map is smoother. Ground and
+bark keep their existing 0.48 floor. Sunlight, environment intensity, camera exposure,
+post-processing, particle geometry and light count are unchanged. The existing bandwidth
+optimizations remain enabled.
+
 ## Performance
 
 ### GPU bandwidth (0.2.1)

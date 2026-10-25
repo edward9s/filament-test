@@ -5,7 +5,8 @@ material {
     parameters : [
         { type : sampler2d, name : albedo },
         { type : sampler2d, name : normalMap },
-        { type : sampler2d, name : arm }
+        { type : sampler2d, name : arm },
+        { type : float, name : roughnessFloor }
     ]
 }
 fragment {
@@ -15,7 +16,7 @@ fragment {
         prepareMaterial(material);
         vec3 maps = texture(materialParams_arm, uv).rgb;
         material.baseColor = vec4(texture(materialParams_albedo, uv).rgb * getColor().rgb, 1.0);
-        material.roughness = clamp(maps.g, 0.48, 1.0);
+        material.roughness = clamp(maps.g, materialParams.roughnessFloor, 1.0);
         material.ambientOcclusion = maps.r;
         material.metallic = 0.0;
     }
