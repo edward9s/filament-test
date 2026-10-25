@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build one corrected Filament translation unit against the unchanged pinned SDK ABI."""
+"""Prepare corrected Filament translation units with the pinned SDK ABI unchanged."""
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
@@ -30,7 +30,6 @@ def patch(source: str) -> str:
                 FILAMENT_CHECK_POSTCONDITION(result == VK_SUCCESS)
                         << "Pipeline eviction wait failed: " << int32_t(result);
                 completed = true;
-                FVK_LOGI << "Vulkan pipeline eviction: GPU completion confirmed";
             }
             vkDestroyPipeline(mDevice, iter->second.handle, VKALLOC);
             iter = mPipelines.erase(iter);
@@ -41,6 +40,59 @@ def patch(source: str) -> str:
 }
 '''
     return source[:start] + body + source[end:]
+
+
+def replace(source, old, new):
+    if source.count(old) != 1:
+        raise RuntimeError(f'Unexpected pinned Filament source: {old[:80]}')
+    return source.replace(old, new, 1)
+
+
+def patch_platform(source: str) -> str:
+    source = replace(source, 'props.queueCount != 0 && props.queueFlags & flags',
+                     'props.queueCount != 0 && (props.queueFlags & flags) == flags')
+    source = replace(source,
+        '    if (mImpl->mDevice == VK_NULL_HANDLE) {\n        createLogicalDeviceAndQueues',
+        '''    // Protected and ordinary queues in the same family share its total capacity.
+    const uint32_t reserved = context.mProtectedMemorySupported &&
+            mImpl->mProtectedGraphicsQueueFamilyIndex == mImpl->mGraphicsQueueFamilyIndex ? 1u : 0u;
+    FILAMENT_CHECK_PRECONDITION(graphicsQueuesCount >= 1u + reserved)
+            << "Queue family cannot provide ordinary and protected graphics queues";
+    const bool hasAsyncQueue = graphicsQueuesCount > 1u + reserved;
+
+    if (mImpl->mDevice == VK_NULL_HANDLE) {
+        createLogicalDeviceAndQueues''')
+    source = replace(source, 'requestedFeatures, graphicsQueuesCount > 1);',
+                     'requestedFeatures, hasAsyncQueue);')
+    source = replace(source,
+        '''    vkGetDeviceQueue(mImpl->mDevice, mImpl->mGraphicsQueueFamilyIndex, mImpl->mGraphicsQueueIndex,
+            &mImpl->mGraphicsQueue);''',
+        '''    VkDeviceQueueInfo2 graphicsInfo = {
+        .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_INFO_2,
+        .flags = 0,
+        .queueFamilyIndex = mImpl->mGraphicsQueueFamilyIndex,
+        .queueIndex = mImpl->mGraphicsQueueIndex,
+    };
+    vkGetDeviceQueue2(mImpl->mDevice, &graphicsInfo, &mImpl->mGraphicsQueue);''')
+    source = replace(source, '    if (graphicsQueuesCount > 1) {', '    if (hasAsyncQueue) {')
+    source = replace(source,
+        '''        vkGetDeviceQueue(mImpl->mDevice, mImpl->mGraphicsQueueFamilyIndex, mImpl->mGraphicsQueueIndex + 1,
+            &mImpl->mAsyncQueue);''',
+        '''        graphicsInfo.queueIndex = mImpl->mGraphicsQueueIndex + 1;
+        vkGetDeviceQueue2(mImpl->mDevice, &graphicsInfo, &mImpl->mAsyncQueue);''')
+    source = replace(source,
+        '    deviceQueueCreateInfo[1].flags = VK_DEVICE_QUEUE_CREATE_PROTECTED_BIT;',
+        '''    deviceQueueCreateInfo[1].flags = VK_DEVICE_QUEUE_CREATE_PROTECTED_BIT;
+    deviceQueueCreateInfo[1].queueFamilyIndex = mImpl->mProtectedGraphicsQueueFamilyIndex;
+    deviceQueueCreateInfo[1].queueCount = 1;''')
+    source = replace(source,
+        '        .multiview = vk11Features.multiview,\n#if defined(__ANDROID__)',
+        '        .multiview = vk11Features.multiview,\n        .protectedMemory = hasProtectedQueue ? VK_TRUE : VK_FALSE,\n#if defined(__ANDROID__)')
+    start = source.index('    VkPhysicalDeviceMultiviewFeaturesKHR multiview = {',
+                         source.index('void VulkanPlatform::createLogicalDeviceAndQueues'))
+    end = source.index('    VkPhysicalDeviceGlobalPriorityQueryFeaturesKHR globalPriority', start)
+    source = source[:start] + source[end:]
+    return source
 
 
 def fetch(item):
@@ -63,4 +115,6 @@ if __name__ == '__main__':
         list(pool.map(fetch, manifest.items()))
     original = DEST / 'filament/backend/src/vulkan/VulkanPipelineCache.cpp'
     (DEST / 'Pipeline.cpp').write_text(patch(original.read_text()))
-    print('Prepared pinned Filament 1.78.1 pipeline eviction correction')
+    original = DEST / 'filament/backend/src/vulkan/platform/VulkanPlatform.cpp'
+    (DEST / 'Platform.cpp').write_text(patch_platform(original.read_text()))
+    print('Prepared pinned Filament 1.78.1 pipeline and device corrections')

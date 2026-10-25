@@ -123,8 +123,24 @@ For the next tablet test, keep `vulkan_sync` **unchecked** and `vulkan_validatio
 **checked**, to verify the original lifetime error disappears without the per-frame
 wait. Report whether it renders, and upload an interactive bugreport ZIP. After that
 passes, build with both unchecked for the normal-size APK and performance comparison.
-The queue/protected-feature initialization VUIDs in the report are separate SDK errors
-and are not fixed by this pipeline-only change. The tablet outcome remains unverified.
+The 10:53 tablet report confirms rendering works with validation ON and per-frame
+queue waiting OFF, with no pipeline lifetime VUIDs or GPU submission errors found in
+the tested process logs. Device initialization still reports duplicate promoted
+features and four queues requested from a three-queue family.
+
+The matching platform translation unit now fixes those requests: require every queue
+capability bit, reserve capacity for a shared protected queue, request exactly one
+protected queue from its selected family, and retrieve queues with explicit flags via
+`vkGetDeviceQueue2`. Protected memory and multiview are enabled only through the
+existing Vulkan 1.1 feature structure. Too little capacity fails initialization.
+All private class layouts and scene features remain unchanged. These new device
+changes still require tablet validation.
+
+Validation warnings now use warning severity instead of error severity. Repetitive
+pipeline-eviction informational lines are removed; completion checks are retained.
+Surface rotation and unused vertex-attribute messages are advisories, not suppressed
+or grounds to change rendering. Qualcomm VKDBGUTILWARN003 messages remain visible;
+the report does not identify a sufficiently specific corrective action.
 
 The next isolation build is `0.2.0-vkvalidate`: in **Run workflow**, select this branch,
 check `vulkan_validation`, and leave `vulkan_sync` unchecked. It bundles the pinned

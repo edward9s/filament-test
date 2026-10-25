@@ -87,10 +87,12 @@ private:
             return std::strcmp(item, name) == 0;
         })) names.push_back(name);
     }
-    static VKAPI_ATTR VkBool32 VKAPI_CALL report(VkDebugUtilsMessageSeverityFlagBitsEXT,
+    static VKAPI_ATTR VkBool32 VKAPI_CALL report(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
             VkDebugUtilsMessageTypeFlagsEXT, const VkDebugUtilsMessengerCallbackDataEXT* data,
             void*) {
-        utils::slog.e << "Vulkan validation: " << data->pMessage << utils::io::endl;
+        auto& log = (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+                ? utils::slog.e : utils::slog.w;
+        log << "Vulkan validation: " << data->pMessage << utils::io::endl;
         return VK_FALSE;
     }
     VkDebugUtilsMessengerEXT messenger_ = VK_NULL_HANDLE;

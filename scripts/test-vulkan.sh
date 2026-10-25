@@ -17,9 +17,12 @@ pipeline_includes=(
 "${CXX:-clang++-20}" -std=c++20 -O2 -stdlib=libc++ -fno-rtti -DNDEBUG \
     -Wall -Wextra -Werror -Wno-missing-field-initializers "${pipeline_includes[@]}" \
     -c .deps/pipeline/Pipeline.cpp -o .generated/tests/pipeline.o
+"${CXX:-clang++-20}" -std=c++20 -O2 -stdlib=libc++ -fno-rtti -DNDEBUG \
+    -Wall -Wextra -Werror -Wno-missing-field-initializers "${pipeline_includes[@]}" \
+    -Wno-unused-parameter -c .deps/pipeline/Platform.cpp -o .generated/tests/platform.o
 "${CXX:-clang++-20}" -std=c++20 -O2 -stdlib=libc++ -fno-rtti -Wall -Wextra -Werror \
     -isystem "$host/include" -isystem .deps/headers/include -Isrc tests/render.cpp src/Forest.cpp src/Geometry.cpp \
-    src/FpsHud.cpp src/Effects.cpp src/EffectsGeometry.cpp .generated/tests/pipeline.o \
+    src/FpsHud.cpp src/Effects.cpp src/EffectsGeometry.cpp .generated/tests/pipeline.o .generated/tests/platform.o \
     -Wl,--start-group "$host"/lib/x86_64/*.a -Wl,--end-group -Wl,--gc-sections \
     -lc++abi -lpthread -ldl -l:libX11.so.6 -o .generated/tests/render
 
