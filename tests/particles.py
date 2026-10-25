@@ -85,43 +85,44 @@ void main() {
     vec2 p=vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
     gl_Position=vec4(p*2.0-1.0,0,1);
 }''')
-fragment = shader(0x8B30, '''#version 300 es
-precision mediump float;
-precision highp int;
-struct Params { int kind; highp float time; };
-uniform Params materialParams;
-struct MaterialInputs { vec4 baseColor; vec4 emissive; };
-layout(location=0) out vec4 result;
-void prepareMaterial(inout MaterialInputs m) { }
-highp vec2 getUV0() { return gl_FragCoord.xy / 128.0; }
-vec4 getColor() { return vec4(1.0,0.45,0.08,1.0); }
-highp float getExposure() { return 1.0/40960.0; }
-''' + fragment + '''
-void main() {
-    MaterialInputs m;material(m);
-    if(any(isnan(m.emissive)) || any(isinf(m.emissive))) {
-        result=vec4(1.0,0.0,1.0,1.0);return;
-    }
-    highp vec3 color=m.baseColor.rgb+m.emissive.rgb*
-        mix(1.0,getExposure(),m.emissive.a)*m.baseColor.a;
-    result=vec4(clamp(color,0.0,1.0),m.baseColor.a);
-}''')
-program = gl('glCreateProgram', uint)()
-attach = gl('glAttachShader', None, uint, uint)
-attach(program, vertex)
-attach(program, fragment)
-gl('glLinkProgram', None, uint)(program)
-valid = integer()
-gl('glGetProgramiv', None, uint, uint, C.POINTER(integer))(program, 0x8B82, C.byref(valid))
-if not valid.value:
-    log = C.create_string_buffer(16384)
-    gl('glGetProgramInfoLog', None, uint, integer, ptr, ptr)(program, len(log), None, log)
-    raise RuntimeError(log.value.decode())
-gl('glUseProgram', None, uint)(program)
-location = gl('glGetUniformLocation', integer, uint, C.c_char_p)
-kind_location = location(program, b'materialParams.kind')
-time_location = location(program, b'materialParams.time')
-assert kind_location >= 0 and time_location >= 0
+def specialize(kind):
+    compiled = shader(0x8B30, '''#version 300 es
+    precision mediump float;
+    precision highp int;
+    struct Params { highp float time; };
+    uniform Params materialParams;
+    struct MaterialInputs { vec4 baseColor; vec4 emissive; };
+    layout(location=0) out vec4 result;
+    void prepareMaterial(inout MaterialInputs m) { }
+    highp vec2 getUV0() { return gl_FragCoord.xy / 128.0; }
+    vec4 getColor() { return vec4(1.0,0.45,0.08,1.0); }
+    highp float getExposure() { return 1.0/40960.0; }
+    ''' + f'const int materialConstants_kind = {kind};\n' + fragment + '''
+    void main() {
+        MaterialInputs m;material(m);
+        if(any(isnan(m.emissive)) || any(isinf(m.emissive))) {
+            result=vec4(1.0,0.0,1.0,1.0);return;
+        }
+        highp vec3 color=m.baseColor.rgb+m.emissive.rgb*
+            mix(1.0,getExposure(),m.emissive.a)*m.baseColor.a;
+        result=vec4(clamp(color,0.0,1.0),m.baseColor.a);
+    }''')
+    program = gl('glCreateProgram', uint)()
+    attach = gl('glAttachShader', None, uint, uint)
+    attach(program, vertex)
+    attach(program, compiled)
+    gl('glLinkProgram', None, uint)(program)
+    valid = integer()
+    gl('glGetProgramiv', None, uint, uint, C.POINTER(integer))(program, 0x8B82, C.byref(valid))
+    if not valid.value:
+        log = C.create_string_buffer(16384)
+        gl('glGetProgramInfoLog', None, uint, integer, ptr, ptr)(program, len(log), None, log)
+        raise RuntimeError(log.value.decode())
+    gl('glUseProgram', None, uint)(program)
+    location = gl('glGetUniformLocation', integer, uint, C.c_char_p)
+    time_location = location(program, b'materialParams.time')
+    return program, time_location
+
 version = gl('glGetString', C.c_char_p, uint)(0x1F02).decode()
 assert version.startswith('OpenGL ES 3'), version
 precision_range, precision = (integer * 2)(), integer()
@@ -130,17 +131,16 @@ gl('glGetShaderPrecisionFormat', None, uint, uint, C.POINTER(integer), C.POINTER
 print(f'{version}; mediump precision: {precision.value} bits')
 gl('glViewport', None, integer, integer, integer, integer)(0, 0, size, size)
 clear = gl('glClear', None, uint)
-uniform_int = gl('glUniform1i', None, integer, integer)
 uniform_float = gl('glUniform1f', None, integer, C.c_float)
 draw = gl('glDrawArrays', None, uint, integer, integer)
 read = gl('glReadPixels', None, integer, integer, integer, integer, uint, uint, ptr)
 pixels = (C.c_ubyte * (size * size * 4))()
 failures = []
 for kind, name in enumerate(['fire', 'explosion', 'spray', 'lightning', 'smoke']):
+    program, time_location = specialize(kind)
     counts = []
     for time in [.3, 1.8, 3600.3]:
         clear(0x4000)
-        uniform_int(kind_location, kind)
         uniform_float(time_location, time)
         draw(4, 0, 3)
         read(0, 0, size, size, 0x1908, 0x1401, pixels)

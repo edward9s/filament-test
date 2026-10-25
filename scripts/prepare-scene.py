@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 from PIL import Image
+from textures import validate as validate_texture
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -37,8 +38,8 @@ def main():
         subprocess.run(['python3', str(ROOT / 'scripts/download-filament.py')], check=True)
         tools = ROOT / '.deps/host/filament/bin'
     suffix = '.exe' if os.name == 'nt' else ''
-    matc, cmgen = tools / ('matc' + suffix), tools / ('cmgen' + suffix)
-    for tool in [matc, cmgen]:
+    matc, cmgen, mipgen = (tools / (name + suffix) for name in ['matc', 'cmgen', 'mipgen'])
+    for tool in [matc, cmgen, mipgen]:
         if not tool.is_file():
             raise RuntimeError(f'Missing Filament tool: {tool}')
     destination = ROOT / '.generated/assets/forest'
@@ -63,7 +64,22 @@ def main():
                     image = image.convert('RGBA')
                     if 'crop' in entry:
                         image = image.crop(entry['crop']).resize((1024, 1024), Image.Resampling.LANCZOS)
-                    (output / (entry['name'] + '.rgba')).write_bytes(image.tobytes())
+                    name = entry['name']
+                    if name.endswith('_normal'):
+                        # Keep normal-map samples lossless; do not quantize fine surface detail.
+                        (output / (name + '.rgba')).write_bytes(image.tobytes())
+                    else:
+                        # UASTC keeps all source channels; mipgen also records the transfer
+                        # function, which Ktx2Reader checks before selecting a GPU block format.
+                        png = output / (name + '.png')
+                        image.save(png, icc_profile=None)
+                        target = output / (name + '.ktx2')
+                        srgb = name.endswith('_albedo') or name == 'canopy'
+                        linear = [] if srgb else ['--linear']
+                        subprocess.run([str(mipgen), '--quiet', '--format=ktx2', '--compression=uastc',
+                                        '--kernel=box', *linear, str(png), str(target)], check=True)
+                        validate_texture(target.read_bytes(), srgb)
+                        png.unlink()
             print(f"Prepared {entry['name']}", flush=True)
         for material in ['surface', 'foliage', 'canopy', 'hud', 'effects', 'water']:
             subprocess.run([str(matc), '-a', 'opengl', '-a', 'vulkan', '-p', 'all',
@@ -78,4 +94,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

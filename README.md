@@ -28,8 +28,9 @@ Linux software renderer, not a phone.
 - FPS updates every half second from submitted frames. Skipped frames count
   as elapsed time; backgrounding and surface changes reset the measurement.
 - Deterministic generation with spatial/material batching and frustum culling; approximately
-  386,000 triangles, 232 batches and 57 MiB of vertex/index data before GPU driver overhead.
-  Texture data is about 53 MiB including mipmaps, plus environment maps and render targets.
+  386,000 triangles, 232 batches and about 40 MiB of GPU vertex/index data before driver overhead.
+  Texture data is about 25.3 MiB including mipmaps on ASTC/BC7/ETC2 hardware, plus environment maps
+  and render targets. Normal maps remain uncompressed; albedo, AO/roughness and canopy use UASTC KTX2.
 - One finger rotates the camera around the ruin; two fingers pinch to zoom. Mouse drag/wheel also work.
   This is an orbiting scene viewer; it does not include walking physics or collision detection.
 - Five separated effects: continuous fire and embers at the front left, a repeating explosion on
@@ -114,6 +115,32 @@ ordering, vertex attributes and shader precision are preserved.
 
 ## Performance
 
+### GPU bandwidth (0.2.1)
+
+The seven albedo, AO/roughness and canopy textures are prepared as UASTC/Zstd KTX2 with complete
+1024→1 mip chains. `Ktx2Reader` chooses supported native blocks (ASTC 4×4, BC7, then ETC2), with
+RGBA8 used only on hardware without a supported compressed target. Color textures retain sRGB
+metadata; AO/roughness is linear. The three normal maps retain their exact RGBA8 source and existing
+runtime mip generation. With 8-bit-per-pixel native blocks, texture storage including mipmaps falls
+from about 53.3 MiB to 25.3 MiB (52.5%). This is a storage estimate, not a measured FPS improvement.
+UASTC/native block encoding is lossy and can introduce small texture differences; normal-map detail
+is not compressed.
+
+Static GPU vertices now use normalized signed 16-bit tangent quaternions and half-float colors.
+Positions and UVs stay float32 and are copied exactly; half colors preserve stone tints above 1.0.
+The 1,101,542 generated vertices occupy 39,655,512 instead of 57,280,184 bytes (30.8% less).
+The packing check measured maximum color error 0.000484347 and tangent component error
+0.0000152886, with handedness preserved. Index buffers, triangle order, geometry and batching remain
+unchanged.
+
+The five particle kinds specialize the same material package using Filament material constants,
+letting each GPU program remove unrelated effect branches. The existing high-precision integer
+noise, emission/exposure handling, alpha cutoff, animation and point-light behavior remain.
+Fifteen GLES fragment readbacks (five kinds at three times, including one hour) matched the
+previous uniform-driven shader with zero RGBA8 difference in the Mesa harness.
+No SSAO, bloom, fog, TAA/FXAA, shadow cascade, shadow resolution, vegetation animation or render-scale
+setting is reduced. Full renderer and tablet FPS/visual validation are still required.
+
 ### Vulkan pipeline lifetime
 
 The tablet validation report identified `VUID-vkDestroyPipeline-pipeline-00765`:
@@ -148,7 +175,7 @@ Tablet measurements determine the resulting frame times.
 Qualcomm and surface-rotation advisories remain visible. Scene quality is unchanged.
 
 Static batches share only bit-identical vertices and use 16-bit indices. Triangle order, UVs,
-tangent frames and colors are preserved. Current mesh payload drops from 64,784,496 to 59,593,916
+tangent frames and colors are preserved. The earlier compaction reduced CPU mesh payload from 64,784,496 to 59,593,916
 bytes (8.0%); batches that exceed the 16-bit vertex limit fail early. Vertex indexing adds
 one-time CPU work during scene loading; it does not run each frame. Particle shaders reject
 transparent borders before evaluating noise. Unlit particles do not rebuild unused tangent frames.
@@ -185,7 +212,8 @@ gradle --no-daemon :app:assembleRelease
 APK: `android/app/build/outputs/apk/release/app-release.apk`.
 
 `prepare-scene.py` downloads SHA-256-pinned CC0 source maps and the matching fork SDK
-host tools, compiles materials with `matc`, and prefilters the HDR environment with `cmgen`.
+host tools, compiles materials with `matc`, generates compressed texture mip chains with `mipgen`,
+and prefilters the HDR environment with `cmgen`. All three tools are installed by the complete fork SDK build.
 It fails on download/hash errors; Gradle fails if scene assets have not been prepared. Generated
 files live in `.generated/` and downloaded dependencies in `.deps/`; neither is committed.
 Source assets require about 12 MiB; the complete SDK is downloaded separately.
@@ -315,6 +343,3 @@ first frame, and initialization and swapchain readiness are logged separately.
 Official references: [Filament](https://github.com/google/filament/releases/tag/v1.78.1),
 [SDL3](https://github.com/libsdl-org/SDL/releases/tag/release-3.4.18),
 [asset credits](assets/CREDITS.md).
-
-
-

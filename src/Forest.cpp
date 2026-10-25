@@ -1,10 +1,12 @@
 #include "Forest.h"
 #include "Geometry.h"
+#include "PackedVertex.h"
 #include <filament/LightManager.h>
 #include <filament/RenderableManager.h>
 #include <filament/TextureSampler.h>
 #include <image/Ktx1Bundle.h>
 #include <ktxreader/Ktx1Reader.h>
+#include <ktxreader/Ktx2Reader.h>
 #include <utils/EntityManager.h>
 #include <algorithm>
 #include <array>
@@ -35,14 +37,32 @@ void Forest::load(const AssetReader& read) {
         if(!m) throw std::runtime_error(std::string("Invalid material: ")+name);
         materials_.push_back(m);return m;
     };
+    ktxreader::Ktx2Reader reader(engine_);
+    // The same UASTC source targets native blocks supported by either backend.
+    // ASTC / BC7 are preferred; ETC2 and RGBA8 cover other hardware capabilities.
+    for(auto format:{Texture::InternalFormat::SRGB8_ALPHA8_ASTC_4x4,Texture::InternalFormat::RGBA_ASTC_4x4,
+            Texture::InternalFormat::SRGB_ALPHA_BPTC_UNORM,Texture::InternalFormat::RGBA_BPTC_UNORM,
+            Texture::InternalFormat::ETC2_EAC_SRGBA8,Texture::InternalFormat::ETC2_EAC_RGBA8,
+            Texture::InternalFormat::SRGB8_A8,Texture::InternalFormat::RGBA8})
+        reader.requestFormat(format);
     auto texture=[&](const std::string& name,bool srgb) {
+        const auto bytes=read("forest/"+name+".ktx2");
+        auto* t=reader.load(bytes.data(),bytes.size(),srgb?ktxreader::Ktx2Reader::TransferFunction::sRGB:
+            ktxreader::Ktx2Reader::TransferFunction::LINEAR);
+        if(!t)throw std::runtime_error("Invalid KTX2 texture: "+name);
+        textures_.push_back(t);
+        if(t->getWidth()!=1024 || t->getHeight()!=1024 || t->getLevels()!=11)
+            throw std::runtime_error("Invalid KTX2 dimensions or mip levels: "+name);
+        return t;
+    };
+    auto normal=[&](const std::string& name) {
         // A fixed 1024x1024 RGBA8 payload avoids a runtime image-decoder dependency.
         auto bytes=std::make_unique<std::vector<uint8_t>>(read("forest/"+name+".rgba"));
         if(bytes->size()!=1024u*1024u*4u) throw std::runtime_error("Invalid texture size: "+name);
         auto* t=Texture::Builder().width(1024).height(1024).levels(0xff)
             .sampler(Texture::Sampler::SAMPLER_2D)
             .usage(Texture::Usage::DEFAULT | Texture::Usage::GEN_MIPMAPPABLE)
-            .format(srgb?Texture::InternalFormat::SRGB8_A8:Texture::InternalFormat::RGBA8).build(engine_);
+            .format(Texture::InternalFormat::RGBA8).build(engine_);
         textures_.push_back(t);
         auto* payload=bytes.release();
         t->setImage(engine_,0,Texture::PixelBufferDescriptor(payload->data(),payload->size(),
@@ -57,7 +77,7 @@ void Forest::load(const AssetReader& read) {
     for(const char* name:{"ground","stone","bark"}) {
         auto* instance=surface->createInstance();instances_.push_back(instance);
         instance->setParameter("albedo",texture(std::string(name)+"_albedo",true),sampler);
-        instance->setParameter("normalMap",texture(std::string(name)+"_normal",false),sampler);
+        instance->setParameter("normalMap",normal(std::string(name)+"_normal"),sampler);
         instance->setParameter("arm",texture(std::string(name)+"_arm",false),sampler);
     }
     leaves_=foliage->createInstance();instances_.push_back(leaves_);
@@ -73,16 +93,18 @@ void Forest::load(const AssetReader& read) {
         // Wind remains within this expanded box, so moving foliage is never culled early.
         lo-=float3{.12f};hi+=float3{.12f};
         auto* vb=VertexBuffer::Builder().vertexCount(uint32_t(mesh.vertices.size())).bufferCount(1)
-            .attribute(VertexAttribute::POSITION,0,VertexBuffer::AttributeType::FLOAT3,offsetof(Vertex,position),sizeof(Vertex))
-            .attribute(VertexAttribute::TANGENTS,0,VertexBuffer::AttributeType::FLOAT4,offsetof(Vertex,tangent),sizeof(Vertex))
-            .attribute(VertexAttribute::UV0,0,VertexBuffer::AttributeType::FLOAT2,offsetof(Vertex,uv),sizeof(Vertex))
-            .attribute(VertexAttribute::COLOR,0,VertexBuffer::AttributeType::FLOAT4,offsetof(Vertex,color),sizeof(Vertex)).build(engine_);
+            .attribute(VertexAttribute::POSITION,0,VertexBuffer::AttributeType::FLOAT3,offsetof(PackedVertex,position),sizeof(PackedVertex))
+            .attribute(VertexAttribute::TANGENTS,0,VertexBuffer::AttributeType::SHORT4,offsetof(PackedVertex,tangent),sizeof(PackedVertex))
+            .normalized(VertexAttribute::TANGENTS)
+            .attribute(VertexAttribute::UV0,0,VertexBuffer::AttributeType::FLOAT2,offsetof(PackedVertex,uv),sizeof(PackedVertex))
+            .attribute(VertexAttribute::COLOR,0,VertexBuffer::AttributeType::HALF4,offsetof(PackedVertex,color),sizeof(PackedVertex)).build(engine_);
         vertices_.push_back(vb);
         auto* ib=IndexBuffer::Builder().indexCount(uint32_t(mesh.indices.size()))
             .bufferType(IndexBuffer::IndexType::USHORT).build(engine_);indices_.push_back(ib);
-        auto* v=new std::vector<Vertex>(std::move(mesh.vertices));
-        vb->setBufferAt(engine_,0,VertexBuffer::BufferDescriptor(v->data(),v->size()*sizeof(Vertex),
-            [](void*,size_t,void* u){delete static_cast<std::vector<Vertex>*>(u);},v));
+        auto* v=new std::vector<PackedVertex>();v->reserve(mesh.vertices.size());
+        for(const auto& vertex:mesh.vertices)v->push_back(packVertex(vertex));
+        vb->setBufferAt(engine_,0,VertexBuffer::BufferDescriptor(v->data(),v->size()*sizeof(PackedVertex),
+            [](void*,size_t,void* u){delete static_cast<std::vector<PackedVertex>*>(u);},v));
         auto* i=new std::vector<uint16_t>(mesh.indices.begin(),mesh.indices.end());
         ib->setBuffer(engine_,IndexBuffer::BufferDescriptor(i->data(),i->size()*sizeof(uint16_t),
             [](void*,size_t,void* u){delete static_cast<std::vector<uint16_t>*>(u);},i));

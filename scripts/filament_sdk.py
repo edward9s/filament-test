@@ -39,7 +39,7 @@ def ready(path, config, archive):
     arch, library, suffix = LAYOUTS[archive]
     files = ['include/bluevk/BlueVK.h', f'lib/{arch}/{library}']
     if suffix is not None:
-        files += [f'bin/matc{suffix}', f'bin/cmgen{suffix}']
+        files += [f'bin/matc{suffix}', f'bin/cmgen{suffix}', f'bin/mipgen{suffix}']
     return (isinstance(metadata, dict)
             and all(metadata.get(key) == value for key, value in config.items())
             and metadata.get('archive') == archive
@@ -66,4 +66,3 @@ def host_archive():
     if system in ('Linux', 'Windows') and machine in ('amd64', 'x86_64'):
         return 'filament-linux.tgz' if system == 'Linux' else 'filament-windows-x64-msvc.tgz'
     raise RuntimeError(f'Unsupported SDK host: {system} {machine}')
-

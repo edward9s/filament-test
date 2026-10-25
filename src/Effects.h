@@ -25,9 +25,8 @@ private:
     filament::Engine& engine_;
     filament::Scene& scene_;
     std::array<Batch,size_t(Effect::Count)> batches_{};
-    std::array<filament::Material*,2> materials_{};
+    std::array<filament::Material*,size_t(Effect::Count)> materials_{};
     std::array<utils::Entity,3> lights_{};
     UploadPool<EffectMeshes> uploads_;
 };
 }
-
