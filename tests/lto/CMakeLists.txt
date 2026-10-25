@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.22.1)
+project(forest_android_lto_smoke LANGUAGES CXX)
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/Lto.cmake")
+add_library(forest_lto_smoke SHARED smoke.cpp)
+enable_android_thinlto(forest_lto_smoke)

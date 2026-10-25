@@ -125,6 +125,25 @@ jobs:
           test -x "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++"
           echo "Filament 1.78.1 / NDK $(cat "$ndk/source.properties" | grep '^Pkg.Revision')"
 
+      - name: Verify Android arm64 ThinLTO linker
+        run: |
+          set -euo pipefail
+          ndk="$ANDROID_HOME/ndk/30.0.16248370"
+          cmake="$ANDROID_HOME/cmake/3.22.1/bin/cmake"
+          build="$RUNNER_TEMP/forest-lto-smoke"
+          "$cmake" -S tests/lto -B "$build" -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
+            -DCMAKE_MAKE_PROGRAM="$ANDROID_HOME/cmake/3.22.1/bin/ninja" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          "$cmake" --build "$build" --verbose | tee "$RUNNER_TEMP/forest-lto-build.log"
+          grep -Fq -- '-flto=thin' "$RUNNER_TEMP/forest-lto-build.log"
+          grep -Fq -- '-fuse-ld=lld' "$RUNNER_TEMP/forest-lto-build.log"
+          if grep -Fq -- '-fuse-ld=gold' "$RUNNER_TEMP/forest-lto-build.log"; then
+            echo '::error::Android LTO selected obsolete gold linker'
+            exit 1
+          fi
+
       - name: Fetch prebuilt Filament and repository SDL3 static SDK
         env:
           GH_TOKEN: ${{ github.token }}
