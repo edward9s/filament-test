@@ -147,9 +147,13 @@ jobs:
       - name: Ensure Ninja is available on macOS
         if: matrix.platform == 'macos-universal'
         run: command -v ninja >/dev/null || brew install ninja
-      - name: Build and test native desktop SDK
-        if: matrix.platform != 'linux-android'
+      - name: Build and test macOS SDK
+        if: matrix.platform == 'macos-universal'
         run: python3 scripts/build-filament-desktop.py filament-source "$PLATFORM"
+      - name: Build and test Windows SDK
+        if: matrix.platform == 'windows-x64-msvc'
+        shell: pwsh
+        run: python scripts/build-filament-desktop.py filament-source $env:PLATFORM
       - name: Upload verified SDKs to the draft dependency release
         run: |
           set -euo pipefail
@@ -219,4 +223,5 @@ jobs:
           from scripts.filament_sdk import lock,release_ready
           assert release_ready(json.load(open('published.json')),lock(Path.cwd())), 'SDK publication failed verification'
           PY
+
 
