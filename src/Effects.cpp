@@ -24,18 +24,21 @@ Effects::~Effects() {
 }
 void Effects::load(const AssetReader& read) {
     if(materials_[0])throw std::logic_error("Effects already loaded");
-    const char* names[]={"forest/effects.filamat","forest/water.filamat"};
+    const auto particles=read("forest/effects.filamat"),water=read("forest/water.filamat");
     for(size_t i=0;i<materials_.size();++i) {
-        auto bytes=read(names[i]);
-        materials_[i]=Material::Builder().package(bytes.data(),bytes.size()).build(engine_);
+        const bool isWater=i==size_t(Effect::Water);
+        const auto& bytes=isWater?water:particles;
+        Material::Builder builder;
+        builder.package(bytes.data(),bytes.size());
+        if(!isWater)builder.constant("kind",int32_t(i));
+        materials_[i]=builder.build(engine_);
         if(!materials_[i])throw std::runtime_error("Invalid effects material");
     }
     const auto meshes=effectMeshes(.12f,{3.07f,3.16f,9.54f});
     for(size_t i=0;i<batches_.size();++i) {
         auto& b=batches_[i];b.count=meshes[i].size();
         if(b.count==0||b.count%4||b.count>std::numeric_limits<uint16_t>::max())throw std::logic_error("Invalid effects mesh size");
-        b.material=materials_[i==size_t(Effect::Water)?1:0]->createInstance();
-        if(i!=size_t(Effect::Water))b.material->setParameter("kind",int(i));
+        b.material=materials_[i]->createInstance();
         b.material->setParameter("time",0.f);
         VertexBuffer::Builder builder;
         builder.vertexCount(uint32_t(b.count)).bufferCount(1)
@@ -97,4 +100,3 @@ void Effects::animate(float seconds,float3 eye) {
         manager.setIntensity(manager.getInstance(lights_[i]),effectLightIntensity(lightEffects[i],seconds));
 }
 }
-

@@ -49,7 +49,7 @@ class SdkDownload(unittest.TestCase):
             (folder / 'lib' / (architecture or arch) / library).write_bytes(b'archive')
             if suffix is not None:
                 (folder / 'bin').mkdir()
-                for tool in ['matc', 'cmgen']:
+                for tool in ['matc', 'cmgen', 'mipgen']:
                     (folder / 'bin' / (tool + suffix)).write_bytes(b'tool')
             (folder / 'SDK-INFO.json').write_text(json.dumps(
                 {**self.config, 'archive': name, **(metadata or {})}))
@@ -202,7 +202,7 @@ class Package(unittest.TestCase):
                     (sdk/'lib'/arch/library).write_bytes(b'static library')
                     if suffix is not None:
                         (sdk/'bin').mkdir()
-                        for tool in ['matc','cmgen']:
+                        for tool in ['matc','cmgen','mipgen']:
                             (sdk/'bin'/(tool+suffix)).write_bytes(b'tool')
                     argv=['package-filament.py','--source',str(source),'--sdk',str(sdk),'--archive',archive]
                     with patch.object(package,'ROOT',root),patch.object(sys,'argv',argv):
@@ -236,4 +236,3 @@ class HostSelection(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
