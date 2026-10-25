@@ -6,6 +6,11 @@ for the fork's `release/1.78.1` maintenance branch. The fork's `main` is a diffe
 snapshot; merging the fix does not require changing the application's engine version.
 A commit remains a valid source identity after its branch has been merged.
 
+The checkout action uses exactly `filament.json.revision` as its `ref`. The current pin
+is `d74ff02b482ebefc2ff5f819585a461a287e8677`, the pipeline fix on `fix/vulkan-lifetime`.
+It does not select a recently updated branch or follow branch-head changes. Updating
+the engine requires changing this pin to the chosen tested commit.
+
 `build_filament.yml` is called by the manual Android test workflow and can also be run
 manually. It checks the single `filament-static` dependency release in filament-test.
 Matching source metadata and all five final assets must exist to reuse it. A different
@@ -24,7 +29,11 @@ All SDK libraries are built in Release mode. Windows uses MSVC, matching static 
 CRT selection; macOS verifies both architectures with `lipo`. Vulkan is enabled on both
 new desktop targets. Each native build runs the pipeline lifetime and utils tests first.
 Linux also builds Android with its matching host tools. Samples and SDL2 are excluded.
-The current recipes retain Filament's default LTO setting (OFF).
+`filament.json` sets `lto` to `ON`. Release builds enable both Filament LTO and CMake IPO;
+the native APK and software Vulkan readback also link with LTO. Linux uses matching LLVM
+18 archive tools and LLD. A required-LTO preflight fails on unsupported toolchains.
+`SDK_LTO` in release notes and `lto` in `SDK-INFO.json` are checked before SDK reuse.
+The APK CMake configuration also rejects a non-LTO SDK.
 
 The release stays a draft while matrix jobs upload SDKs and individual checksums.
 The final job checks every hash, source stamp, library layout and host-tool set, publishes
@@ -47,9 +56,11 @@ this workflow on the application branch. No Actions setup is required in the for
 
 The pipeline fix uses existing command-buffer resource ownership. Cache age controls eviction;
 GPU fences control release of command references. No idle wait is added to cache collection.
-Material uniform batching remains disabled for Vulkan until a separate validation run.
+Vulkan material uniform batching is explicitly enabled through `RendererEngine.h`.
 
 Android run #25 succeeded using the fork SDK with validation OFF and queue waiting OFF.
 It includes the pipeline ownership fix and a Release-mode SDK. This does not establish
-that Vulkan is faster, or that every optional optimization is enabled. Device validation
-of the fix and native macOS/Windows CI execution are still pending.
+that Vulkan is faster. Run #25 predates the batching/LTO changes; the next successful
+workflow build will produce the optimized configuration. Device validation and native
+macOS/Windows CI execution are still pending.
+

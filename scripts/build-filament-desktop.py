@@ -48,7 +48,10 @@ def main():
     run(debug / 'libs/utils' / component / ('test_utils' + suffix))
     build = source / 'out' / ('sdk-release-' + args.platform)
     run('cmake', '-S', source, '-B', build, '-DCMAKE_BUILD_TYPE=Release',
-        f'-DCMAKE_INSTALL_PREFIX={sdk}', '-DFILAMENT_BUILD_TESTING=OFF', *common)
+        f'-DCMAKE_INSTALL_PREFIX={sdk}', '-DFILAMENT_BUILD_TESTING=OFF',
+        f'-DFILAMENT_ENABLE_LTO={config["lto"]}',
+        f'-DCMAKE_INTERPROCEDURAL_OPTIMIZATION={config["lto"]}',
+        f'-DCMAKE_PROJECT_INCLUDE={ROOT / "cmake/Lto.cmake"}', *common)
     run('cmake', '--build', build, '--config', 'Release', '--target', 'install', '--parallel', '2')
     if not windows:
         archs = subprocess.check_output(['lipo', '-archs', str(sdk / 'lib/universal/libfilament.a')], text=True)
@@ -60,3 +63,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

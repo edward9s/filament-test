@@ -62,13 +62,10 @@ The Vulkan test requires a device with a working Vulkan driver. Do not treat a V
 initialization failure as a valid comparison result. The error is shown on screen and in
 logcat, and no fallback changes the requested test backend.
 
-On the Tab S8 / Adreno 730 report, Vulkan device selection and the five-image swapchain
-both succeeded before the driver reported GPU command protocol errors and deadlocks.
-Vulkan disables
-Filament's shared material-uniform batching through `RendererEngine.h`, using individual
-material buffers and staged uploads instead. This is a compatibility workaround pending
-device confirmation, not proof that batching caused the driver fault; record this setting
-when comparing performance. Scene geometry, lighting, effects and postprocessing are unchanged.
+Vulkan explicitly enables Filament's shared material-uniform batching through
+`RendererEngine.h`. The fork SDK and native APK use LTO. SDK metadata must match both
+the source commit and LTO setting; unsupported LTO fails configuration. Scene geometry,
+lighting, effects and postprocessing are unchanged.
 
 Filament 1.78.1 also retries `VK_SUBOPTIMAL_KHR` in its image-acquisition loop and can
 skip presentation indefinitely when the driver repeatedly returns it (as seen in the tablet's
@@ -115,9 +112,9 @@ After this passes, build with both options unchecked for performance measurement
 Validation adds a large native layer and affects timing, so its APK is unsuitable for FPS
 comparison. Both options together are rejected because waiting can hide the fault.
 
-Material uniform batching remains disabled for Vulkan while this lifetime change is
-isolated. Restoring batching is a separate experiment. Removing an eviction stall does
-not establish that Vulkan is faster than OpenGL ES; compare the resulting APK on the tablet.
+Vulkan material uniform batching and SDK/application LTO are enabled. Compare the new
+APK with both diagnostics OFF after shaders warm up, using the same camera and scene.
+Tablet measurements determine the resulting frame times.
 Qualcomm and surface-rotation advisories remain visible. Scene quality is unchanged.
 
 Static batches share only bit-identical vertices and use 16-bit indices. Triangle order, UVs,
@@ -271,4 +268,5 @@ first frame, and initialization and swapchain readiness are logged separately.
 Official references: [Filament](https://github.com/google/filament/releases/tag/v1.78.1),
 [SDL3](https://github.com/libsdl-org/SDL/releases/tag/release-3.4.18),
 [asset credits](assets/CREDITS.md).
+
 

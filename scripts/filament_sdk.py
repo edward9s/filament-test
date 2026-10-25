@@ -12,7 +12,7 @@ LAYOUTS = {
 }
 ASSETS = set(LAYOUTS) | {'SHA256SUMS'}
 FIELDS = {'repository': 'SOURCE_REPOSITORY', 'revision': 'SOURCE_COMMIT',
-          'version': 'SOURCE_VERSION', 'ndk': 'SOURCE_NDK'}
+          'version': 'SOURCE_VERSION', 'ndk': 'SOURCE_NDK', 'lto': 'SDK_LTO'}
 
 
 def validate(config):
@@ -22,6 +22,8 @@ def validate(config):
         raise RuntimeError('Invalid Filament source pin')
     if not re.fullmatch(r'\d+\.\d+\.\d+', config['ndk']):
         raise RuntimeError('Invalid Filament NDK pin')
+    if config['lto'] not in ('ON', 'OFF'):
+        raise RuntimeError('Invalid Filament LTO setting')
     return config
 
 
@@ -64,3 +66,4 @@ def host_archive():
     if system in ('Linux', 'Windows') and machine in ('amd64', 'x86_64'):
         return 'filament-linux.tgz' if system == 'Linux' else 'filament-windows-x64-msvc.tgz'
     raise RuntimeError(f'Unsupported SDK host: {system} {machine}')
+

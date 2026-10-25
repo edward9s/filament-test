@@ -27,7 +27,7 @@ class SdkDownload(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.config = {'repository': 'edward9s/filament', 'revision': 'a' * 40,
-                       'version': '1.78.1', 'ndk': '30.0.16248370'}
+                       'version': '1.78.1', 'ndk': '30.0.16248370', 'lto': 'ON'}
         (self.root / 'filament.json').write_text(json.dumps(self.config))
         self.release = self.root / 'release'
         self.release.mkdir()
@@ -104,6 +104,17 @@ class SdkDownload(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'source/architecture mismatch'):
             self.download()
 
+    def test_non_lto_archive_is_rejected(self):
+        self.package({'lto': 'OFF'})
+        with self.assertRaisesRegex(RuntimeError, 'source/architecture mismatch'):
+            self.download()
+
+    def test_non_lto_release_requires_rebuild(self):
+        self.info['body'] = self.info['body'].replace('SDK_LTO=ON', 'SDK_LTO=OFF')
+        self.assertFalse(common.release_ready(self.info, self.config))
+        with self.assertRaisesRegex(RuntimeError, 'not ready for the pinned source'):
+            self.download()
+
     def test_different_architecture_is_rejected(self):
         self.package(architecture='arm64-v8a')
         with self.assertRaisesRegex(RuntimeError, 'source/architecture mismatch'):
@@ -177,7 +188,7 @@ class Package(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary)
             config={'repository':'edward9s/filament','revision':'a'*40,
-                    'version':'1.78.1','ndk':'30.0.16248370'}
+                    'version':'1.78.1','ndk':'30.0.16248370','lto':'ON'}
             (root/'filament.json').write_text(json.dumps(config))
             source=root/'source'
             for header in ['libs/bluevk/include/bluevk/BlueVK.h','libs/utils/include/utils/Mutex.h']:
@@ -225,3 +236,4 @@ class HostSelection(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

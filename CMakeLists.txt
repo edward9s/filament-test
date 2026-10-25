@@ -33,6 +33,15 @@ if(NOT SDK_REVISION STREQUAL PIN_REVISION)
     message(FATAL_ERROR "Filament SDK revision does not match filament.json")
 endif()
 
+string(JSON SDK_LTO GET "${SDK_INFO}" lto)
+string(JSON PIN_LTO GET "${SDK_PIN}" lto)
+if(NOT SDK_LTO STREQUAL PIN_LTO OR NOT SDK_LTO STREQUAL "ON")
+    message(FATAL_ERROR "This build requires the matching LTO-enabled Filament SDK")
+endif()
+
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+include(cmake/Lto.cmake)
+
 set(FILAMENT_LIB_DIR "${FILAMENT_SDK}/lib/${ANDROID_ABI}")
 if(NOT EXISTS "${FILAMENT_LIB_DIR}/libfilament.a")
     message(FATAL_ERROR "Invalid FILAMENT_SDK: missing ${FILAMENT_LIB_DIR}/libfilament.a")
@@ -81,3 +90,4 @@ target_link_libraries(main PRIVATE
 )
 # Required to pull SDL3's JNI_OnLoad out of libSDL3.a and register Android JNI methods.
 target_link_options(main PRIVATE "-Wl,-u,JNI_OnLoad" "-Wl,--gc-sections")
+

@@ -150,7 +150,7 @@ jobs:
       - name: Render the complete scene with Vulkan and recreate its swapchain
         run: |
           sudo apt-get install -y --no-install-recommends \
-            clang-18 libc++-18-dev libc++abi-18-dev mesa-vulkan-drivers
+            clang-18 llvm-18 lld-18 libc++-18-dev libc++abi-18-dev mesa-vulkan-drivers
           g++ -std=c++20 -O2 -Wall -Wextra -Werror tests/pixels.cpp -o /tmp/pixels-test
           /tmp/pixels-test
           bash scripts/test-vulkan.sh
@@ -208,6 +208,7 @@ jobs:
           source_revision="$(python3 -c 'import json;print(json.load(open("filament.json"))["revision"])')"
           notes="Latest successful build: #${GITHUB_RUN_NUMBER}, commit ${GITHUB_SHA}.
           SDL3 ${sdl_version} (repository static SDK) + Filament fork ${source_revision}; arm64 release APK signed with the configured repository key.
+          Filament SDK LTO: ON. Vulkan material uniform batching: ON.
           Vulkan synchronization diagnostic: ${FOREST_VULKAN_SYNC}.
           Vulkan lifetime/synchronization validation: ${FOREST_VULKAN_VALIDATION}.
           Workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
@@ -229,3 +230,4 @@ jobs:
       - name: Remove release signing key
         if: always()
         run: rm -f -- "$RUNNER_TEMP/filament-release.jks"
+
