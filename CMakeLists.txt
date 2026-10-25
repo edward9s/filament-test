@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.22.1)
 project(filament_sdl3_test LANGUAGES CXX)
+option(FOREST_VULKAN_SYNC "Diagnostic: wait for Vulkan drawing before presentation and GC" OFF)
+
+option(FOREST_VULKAN_VALIDATION "Diagnostic: enable bundled Vulkan validation layer" OFF)
+if(FOREST_VULKAN_VALIDATION AND FOREST_VULKAN_SYNC)
+    message(FATAL_ERROR "Validation requires FOREST_VULKAN_SYNC=OFF to reproduce the fault")
+endif()
 
 if(NOT ANDROID)
     message(FATAL_ERROR "This starter currently targets Android only.")
@@ -21,6 +27,11 @@ if(NOT EXISTS "${FILAMENT_LIB_DIR}/libfilament.a")
     message(FATAL_ERROR "Invalid FILAMENT_SDK: missing ${FILAMENT_LIB_DIR}/libfilament.a")
 endif()
 
+# Both backends must be present: do not silently ship an OpenGL-only build.
+if(NOT EXISTS "${FILAMENT_LIB_DIR}/libbluevk.a")
+    message(FATAL_ERROR "Filament SDK has no Vulkan loader library: ${FILAMENT_LIB_DIR}/libbluevk.a")
+endif()
+
 # Require our repository-prebuilt static SDK, never substitute a dynamic system SDL3.
 if(NOT DEFINED SDL3_SDK OR SDL3_SDK STREQUAL "")
     message(FATAL_ERROR "Set SDL3_SDK to the unpacked SDL3 static SDK.")
@@ -34,8 +45,30 @@ find_package(SDL3 REQUIRED CONFIG COMPONENTS SDL3-static
     PATHS "${SDL3_SDK}" NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
 
 add_library(main SHARED src/main.cpp src/Forest.cpp src/Geometry.cpp src/FpsHud.cpp src/Effects.cpp src/EffectsGeometry.cpp)
+# Replace pinned pipeline-cache and device setup units, preserving their ABI.
+# Its definitions satisfy archive references before the original backend object is pulled.
+set(PIPELINE_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/.deps/pipeline")
+if(NOT EXISTS "${PIPELINE_SOURCE}/Pipeline.cpp" OR NOT EXISTS "${PIPELINE_SOURCE}/Platform.cpp")
+    message(FATAL_ERROR "Missing corrected pipeline source. Run scripts/download-deps.sh.")
+endif()
+target_sources(main PRIVATE "${PIPELINE_SOURCE}/Pipeline.cpp" "${PIPELINE_SOURCE}/Platform.cpp")
+target_include_directories(main SYSTEM PRIVATE
+    "${PIPELINE_SOURCE}/filament/backend/src/vulkan"
+    "${PIPELINE_SOURCE}/filament/backend/src"
+    "${PIPELINE_SOURCE}/filament/backend/include"
+    "${PIPELINE_SOURCE}/libs/utils/include"
+    "${PIPELINE_SOURCE}/third_party/vkmemalloc/include")
+set_source_files_properties("${PIPELINE_SOURCE}/Pipeline.cpp" "${PIPELINE_SOURCE}/Platform.cpp" PROPERTIES COMPILE_DEFINITIONS NDEBUG)
+
+target_compile_definitions(main PRIVATE FOREST_VULKAN_SYNC=$<BOOL:${FOREST_VULKAN_SYNC}>
+    FOREST_VULKAN_VALIDATION=$<BOOL:${FOREST_VULKAN_VALIDATION}>)
 target_include_directories(main PRIVATE "${FILAMENT_SDK}/include")
-target_compile_options(main PRIVATE -Wall -Wextra)
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.deps/headers/include/bluevk/BlueVK.h")
+    message(FATAL_ERROR "Missing pinned Filament platform headers. Run scripts/download-deps.sh.")
+endif()
+target_include_directories(main SYSTEM PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/.deps/headers/include")
+# The prebuilt Filament platform classes have no RTTI; derived platforms must match.
+target_compile_options(main PRIVATE -Wall -Wextra -fno-rtti)
 
 # Filament is distributed as a set of static libraries with circular references.
 # Link as a single group, without rebuilding Filament. Dead stripping will discard

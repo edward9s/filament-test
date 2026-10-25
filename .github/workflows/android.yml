@@ -7,6 +7,7 @@ on:
         description: 'GPU lifetime diagnostic (slower; unsuitable for FPS comparisons)'
         type: boolean
         default: false
+
       vulkan_validation:
         description: 'Trace Vulkan object lifetime and synchronization errors (queue wait must be off)'
         type: boolean
@@ -32,15 +33,28 @@ jobs:
     needs: [sdl, jolt]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    env:
+      FOREST_VULKAN_VALIDATION: ${{ inputs.vulkan_validation && 'ON' || 'OFF' }}
+      FOREST_VULKAN_SYNC: ${{ inputs.vulkan_sync && 'ON' || 'OFF' }}
     steps:
-      - name: Reject unsupported diagnostics on main
-        if: inputs.vulkan_sync || inputs.vulkan_validation
-        run: |
-          echo '::error::For Vulkan diagnostics, select feature/filament-vulkan-toggle in Use workflow from.'
-          exit 1
-
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate diagnostic selection
+        run: |
+          if [[ "$FOREST_VULKAN_SYNC" == ON && "$FOREST_VULKAN_VALIDATION" == ON ]]; then
+            echo '::error::Select validation with vulkan_sync unchecked'
+            exit 1
+          fi
+
+      - name: Preserve tablet-confirmed Vulkan APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/preserve-vulkan.sh
+
+      - name: Fetch pinned Vulkan validation layer
+        if: inputs.vulkan_validation
+        run: python3 scripts/download-validation.py
 
       - name: Java 21
         uses: actions/setup-java@v4
@@ -120,6 +134,8 @@ jobs:
 
       - name: Validate forest geometry and effects
         run: |
+          python3 tests/pipeline.py
+          python3 tests/device.py
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -isystem .deps/host/filament/include \
             -Isrc tests/geometry.cpp src/Geometry.cpp -o /tmp/forest-geometry-test
           /tmp/forest-geometry-test
@@ -128,6 +144,14 @@ jobs:
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -isystem .deps/host/filament/include \
             -Isrc tests/effects.cpp src/EffectsGeometry.cpp src/Geometry.cpp -o /tmp/forest-effects-test
           /tmp/forest-effects-test
+
+      - name: Render the complete scene with Vulkan and recreate its swapchain
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            clang-20 libc++-20-dev libc++abi-20-dev mesa-vulkan-drivers
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror tests/pixels.cpp -o /tmp/pixels-test
+          /tmp/pixels-test
+          bash scripts/test-vulkan.sh
 
       - name: Build signed Android arm64 release APK
         working-directory: android
@@ -145,6 +169,13 @@ jobs:
           test -s "$apk"
           tools="$ANDROID_HOME/build-tools/35.0.0"
           unzip -tqq "$apk"
+          layer='lib/arm64-v8a/libVkLayer_khronos_validation.so'
+          if [[ "$FOREST_VULKAN_VALIDATION" == ON ]]; then
+            unzip -Z1 "$apk" | grep -Fx "$layer"
+          elif unzip -Z1 "$apk" | grep -Fxq "$layer"; then
+            echo '::error::Unexpected validation layer in normal build'
+            exit 1
+          fi
           "$tools/aapt2" dump badging "$apk"
           "$tools/zipalign" -c -P 16 4 "$apk"
           unzip -l "$apk" | grep -F 'lib/arm64-v8a/libmain.so'
@@ -174,6 +205,8 @@ jobs:
           [[ "$sdl_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           notes="Latest successful build: #${GITHUB_RUN_NUMBER}, commit ${GITHUB_SHA}.
           SDL3 ${sdl_version} (repository static SDK) + Google Filament 1.78.1; arm64 release APK signed with the configured repository key.
+          Vulkan synchronization diagnostic: ${FOREST_VULKAN_SYNC}.
+          Vulkan lifetime/synchronization validation: ${FOREST_VULKAN_VALIDATION}.
           Workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           APK size: ${size} bytes.
           SHA-256: ${digest}"

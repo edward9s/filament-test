@@ -15,6 +15,8 @@ public:
     void render(filament::Renderer& renderer, int width, int height);
     void completedFrame(double seconds);
     void reset();
+    void setVulkan(bool vulkan);
+    bool contains(float x, float y, int width, int height) const;
 private:
     filament::Engine& engine_;
     filament::Scene* scene_ = nullptr;

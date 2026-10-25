@@ -14,6 +14,16 @@ const HudVertex quadVertices[] = {
     {{-1,-1,0},{0,0}}, {{1,-1,0},{1,0}}, {{1,1,0},{1,1}}, {{-1,1,0},{0,1}}
 };
 const uint16_t quadIndices[] = {0,1,2,0,2,3};
+struct HudBounds { int margin=0,width=0,height=0; };
+HudBounds hudBounds(int width,int height) {
+    if(width<=0 || height<=0)return {};
+    const int margin=std::max(8,std::min(width,height)/40);
+    const int base=std::clamp(std::min(width,height)/3,180,270);
+    const int w=std::min(base*4/3,width-2*margin);
+    const int h=w*15/72;
+    if(w<=0 || height<h+2*margin)return {};
+    return {margin,w,h};
+}
 }
 FpsHud::~FpsHud() {
     if (view_) engine_.destroy(view_);
@@ -60,13 +70,21 @@ void FpsHud::load(const AssetReader& read) {
     scene_->addEntity(quad_);
 }
 void FpsHud::render(Renderer& renderer, int width, int height) {
-    if (width <= 0 || height <= 0) return;
-    const int margin = std::max(8,std::min(width,height)/40);
-    const int w = std::min(std::clamp(std::min(width,height)/3,180,270),width-2*margin);
-    const int h = w*15/54;
-    if (w <= 0 || height < h+2*margin) return;
-    view_->setViewport({margin,height-margin-h,uint32_t(w),uint32_t(h)});
+    const auto bounds=hudBounds(width,height);
+    if(bounds.width==0)return;
+    view_->setViewport({bounds.margin,height-bounds.margin-bounds.height,
+                        uint32_t(bounds.width),uint32_t(bounds.height)});
     renderer.render(view_);
+}
+bool FpsHud::contains(float x, float y, int width, int height) const {
+    const auto bounds=hudBounds(width,height);
+    if(bounds.width==0)return false;
+    return x*width>=bounds.margin && x*width<bounds.margin+bounds.width &&
+           y*height>=bounds.margin && y*height<bounds.margin+bounds.height;
+}
+void FpsHud::setVulkan(bool vulkan) {
+    if(!instance_)throw std::logic_error("FPS HUD must be loaded before choosing a backend");
+    instance_->setParameter("vulkan",vulkan?1.f:0.f);
 }
 void FpsHud::completedFrame(double seconds) {
     if (counter_.record(seconds)) instance_->setParameter("fps",counter_.value());

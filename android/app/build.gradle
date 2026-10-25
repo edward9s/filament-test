@@ -4,6 +4,17 @@ plugins {
 
 def filamentSdk = file('../../.deps/filament').absolutePath
 def sdl3Sdk = file('../../.deps/sdl3').absolutePath
+def vulkanSync = System.getenv('FOREST_VULKAN_SYNC') ?: 'OFF'
+if (!(vulkanSync in ['ON', 'OFF'])) {
+    throw new GradleException('FOREST_VULKAN_SYNC must be ON or OFF')
+}
+def vulkanValidation = System.getenv('FOREST_VULKAN_VALIDATION') ?: 'OFF'
+if (!(vulkanValidation in ['ON', 'OFF'])) {
+    throw new GradleException('FOREST_VULKAN_VALIDATION must be ON or OFF')
+}
+if (vulkanValidation == 'ON' && vulkanSync == 'ON') {
+    throw new GradleException('Validation requires FOREST_VULKAN_SYNC=OFF')
+}
 def signing = ['KEYSTORE_PATH', 'STORE_PASSWORD',
                'KEY_ALIAS', 'KEY_PASSWORD'].collectEntries { name ->
     [(name): System.getenv(name)]
@@ -19,19 +30,22 @@ android {
         minSdk 26
         targetSdk 35
         versionCode 2
-        versionName '0.2.0'
+        versionName (vulkanValidation == 'ON' ? '0.2.0-vkvalidate' : vulkanSync == 'ON' ? '0.2.0-vksync' : '0.2.0')
         ndk {
             abiFilters 'arm64-v8a'
         }
         externalNativeBuild {
             cmake {
-                arguments "-DFILAMENT_SDK=${filamentSdk}", "-DSDL3_SDK=${sdl3Sdk}"
+                arguments "-DFILAMENT_SDK=${filamentSdk}", "-DSDL3_SDK=${sdl3Sdk}", "-DFOREST_VULKAN_SYNC=${vulkanSync}", "-DFOREST_VULKAN_VALIDATION=${vulkanValidation}"
             }
         }
     }
 
     sourceSets {
         main.assets.srcDirs += ['../../.generated/assets']
+        if (vulkanValidation == 'ON') {
+            main.jniLibs.srcDirs += ['../../.deps/validation']
+        }
         main.java.srcDirs += ['../../.deps/sdl3/android/java']
     }
 
@@ -96,3 +110,16 @@ tasks.register('verifyReleaseSigning') {
     }
 }
 tasks.matching { it.name == 'preReleaseBuild' }.configureEach { dependsOn 'verifyReleaseSigning' }
+
+// A diagnostic without its layer is an invalid build.
+if (vulkanValidation == 'ON') {
+    tasks.register('verifyValidationLayer') {
+        doLast {
+            def layer = file('../../.deps/validation/arm64-v8a/libVkLayer_khronos_validation.so')
+            if (!layer.isFile() || layer.length() == 0) {
+                throw new GradleException('Run python3 scripts/download-validation.py first')
+            }
+        }
+    }
+    tasks.named('preBuild').configure { dependsOn 'verifyValidationLayer' }
+}
