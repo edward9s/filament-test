@@ -118,8 +118,10 @@ ordering, vertex attributes and shader precision are preserved.
 
 The tablet validation report identified `VUID-vkDestroyPipeline-pipeline-00765`:
 Filament 1.78.1 evicted a pipeline while submitted command buffers still used it.
-The earlier fix waited for device idle before an eviction batch. The working
-`baseline/vulkan-sync-8003146` source and `vulkan-sync-8003146` APK release remain preserved.
+The earlier fix waited for device idle before an eviction batch; its source is recorded
+in commit `80031464b6e224b4bfc89c4eb4933ee639e40059`. The historical APK is no longer
+available in the current releases. Normal builds replace the rolling `test-build` APK
+without attempting to archive that historical binary.
 
 This branch builds complete SDKs from [edward9s/filament](https://github.com/edward9s/filament),
 pinned by full commit SHA in `filament.json`. Each pipeline now uses Filament's existing
