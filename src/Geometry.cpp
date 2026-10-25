@@ -186,11 +186,12 @@ struct Builder {
             if(y==0 || y==rings) points[y][x]=p+float3{0,y==0?size.y:-size.y,0};
         }
         for(int y=0;y<=rings;++y)points[y][sides]=points[y][0];
+        // Outward CCW winding; triangle() derives the normal and tangent frame.
         for(int y=0;y<rings;++y)for(int x=0;x<sides;++x) {
             auto a=points[y][x],b=points[y][x+1],c=points[y+1][x+1],d=points[y+1][x];
             auto uv=[&](float3 v){return float2{v.x+v.y*.3f,v.z+v.y*.4f}/2.f;};
-            if(y!=0)triangle(m,a,c,b,uv(a),uv(c),uv(b),{.85f,.88f,.8f,1});
-            if(y!=rings-1)triangle(m,a,d,c,uv(a),uv(d),uv(c),{.85f,.88f,.8f,1});
+            if(y!=0)triangle(m,a,b,c,uv(a),uv(b),uv(c),{.85f,.88f,.8f,1});
+            if(y!=rings-1)triangle(m,a,c,d,uv(a),uv(c),uv(d),{.85f,.88f,.8f,1});
         }
     }
     void arch(float z, float scale) {
