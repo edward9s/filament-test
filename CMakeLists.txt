@@ -40,7 +40,6 @@ if(NOT SDK_LTO STREQUAL PIN_LTO OR NOT SDK_LTO STREQUAL "ON")
     message(FATAL_ERROR "This build requires the matching LTO-enabled Filament SDK")
 endif()
 
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
 include(cmake/Lto.cmake)
 
 set(FILAMENT_LIB_DIR "${FILAMENT_SDK}/lib/${ANDROID_ABI}")
@@ -66,6 +65,7 @@ find_package(SDL3 REQUIRED CONFIG COMPONENTS SDL3-static
     PATHS "${SDL3_SDK}" NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
 
 add_library(main SHARED src/main.cpp src/Forest.cpp src/Geometry.cpp src/FpsHud.cpp src/Effects.cpp src/EffectsGeometry.cpp)
+enable_android_thinlto(main)
 target_compile_definitions(main PRIVATE FOREST_VULKAN_SYNC=$<BOOL:${FOREST_VULKAN_SYNC}>
     FOREST_FIXED_RESOLUTION=$<BOOL:${FOREST_FIXED_RESOLUTION}>
     FOREST_VULKAN_VALIDATION=$<BOOL:${FOREST_VULKAN_VALIDATION}>)
