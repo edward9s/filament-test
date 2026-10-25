@@ -62,6 +62,12 @@ only the requested entries. A native NOOP-backend regression verifies storage re
 40 frames, newest-first order, bounded copies and snapshot independence. This changes CPU
 bookkeeping; no GPU completion or presentation synchronization is removed.
 
+Windows builds run the native Python builder through PowerShell. The fork captures
+Windows call stacks, retains all job-pool slots despite heap-base alignment, and
+preserves drive-root separators in path splitting. All Utils tests remain enabled.
+The Windows wakeup stress test keeps 5,000 rounds and its 200 ms per-round completion
+check; its outer budget is 180 seconds to accommodate Windows timer/thread overhead.
+
 Android run #25 succeeded using the fork SDK with validation OFF and queue waiting OFF.
 It includes the pipeline ownership fix and a Release-mode SDK. This does not establish
 that Vulkan is faster. Run #25 predates the batching/LTO changes; the next successful

@@ -1,6 +1,6 @@
 {
   "repository": "edward9s/filament",
-  "revision": "2aa2d88fac1c31c4ac5da87a40d1ebec3698aa80",
+  "revision": "48dc0de08cba360502ad62cbc29b9a0a6e75abc2",
   "version": "1.78.1",
   "ndk": "30.0.16248370",
   "lto": "ON"
