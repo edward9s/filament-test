@@ -1,7 +1,7 @@
 # Forest Ruins — Filament + SDL3
 
 Native C++ forest-and-ruins scene for **Android arm64**, using **SDL 3.4.18** for
-window/input/lifecycle and **Google Filament 1.78.1** for switchable OpenGL ES / Vulkan rendering.
+window/input/lifecycle and **Filament 1.78.1 from our pinned fork** for switchable OpenGL ES / Vulkan rendering.
 
 ![Actual Filament OpenGL rendering on Linux llvmpipe](docs/forest-preview.jpg)
 
@@ -89,76 +89,36 @@ strict same-resolution test, temporarily disable dynamic resolution in
 
 ## Performance
 
-### GPU lifetime diagnostic
+### Vulkan pipeline lifetime
 
-The 2026-10-25 tablet bugreport records a GPU page fault in the Filament process:
-the driver identifies the faulting Vulkan allocation as already freed, followed by GPU
-timeouts. The application can still handle input and switch back to OpenGL ES. The
-SUBOPTIMAL acquisition adapter does not resolve this failure; its warning was not
-observed in the latest run. A suboptimal warning can also originate from presentation.
-The exact resource and responsible engine/driver code remain unconfirmed.
+The tablet validation report identified `VUID-vkDestroyPipeline-pipeline-00765`:
+Filament 1.78.1 evicted a pipeline while submitted command buffers still used it.
+The earlier fix waited for device idle before an eviction batch. The working
+`baseline/vulkan-sync-8003146` source and `vulkan-sync-8003146` APK release remain preserved.
 
-The user confirmed that the synchronized `8003146` APK renders successfully on the
-Tab S8. Source is preserved on `baseline/vulkan-sync-8003146`. Before replacing the
-rolling APK, the workflow preserves the exact successful binary and its SHA-256 in
-release `vulkan-sync-8003146`; a mismatch stops the build instead of archiving the
-wrong APK. The baseline was built with `FOREST_VULKAN_SYNC=ON` (version `0.2.0-vksync`).
-It waits inside present, before endFrame cache collection, and is unsuitable for FPS
-comparisons. The exact faulty resource remains unknown.
+This branch builds complete SDKs from [edward9s/filament](https://github.com/edward9s/filament),
+pinned by full commit SHA in `filament.json`. Each pipeline now uses Filament's existing
+`resource_ptr` ownership: the cache and each command buffer hold references. Eviction drops
+only the cache reference; a command buffer releases its references after its existing fence
+reports completion. No queue/device idle wait is added to pipeline collection. The SDK
+also carries the previously tested protected-queue capacity and Vulkan 1.1 feature-chain fixes.
 
-The 09:32 validation report identifies `VUID-vkDestroyPipeline-pipeline-00765`:
-`vkDestroyPipeline` destroys pipelines still referenced by submitted command buffers,
-before the subsequent Adreno errors. Filament 1.78.1's cache evicts by age without
-checking actual completion. We compile the matching pipeline-cache translation unit
-with its unchanged ABI, correcting only `gc()`: before an eviction batch it waits for
-device completion once. Frames without eviction do not wait. This is deliberately
-conservative across queues; it is not per-resource fence tracking and can still cause
-an eviction-time stall. No global Vulkan function hooks or changed cache retention
-thresholds are used. Every downloaded private source/header is checksum pinned, including Android-only
-mutex, condition-variable and tracing headers. Linux software rendering uses the host
-compiler; Android compilation uses the real pinned NDK and its Android sysroot. Do not
-simulate Android by defining __ANDROID__ on a Linux libc++ toolchain.
+The application no longer compiles replacement Filament translation units against an
+official prebuilt library. Host tools, Linux libraries and Android libraries come from
+the same fork commit. [SDK build and pin details](docs/filament-sdk.md).
 
-For the next tablet test, keep `vulkan_sync` **unchecked** and `vulkan_validation`
-**checked**, to verify the original lifetime error disappears without the per-frame
-wait. Report whether it renders, and upload an interactive bugreport ZIP. After that
-passes, build with both unchecked for the normal-size APK and performance comparison.
-The 10:53 tablet report confirms rendering works with validation ON and per-frame
-queue waiting OFF, with no pipeline lifetime VUIDs or GPU submission errors found in
-the tested process logs. Device initialization still reports duplicate promoted
-features and four queues requested from a three-queue family.
+The new ownership change still needs tablet validation. In **Android test build → Run
+workflow**, select `feature/filament-fork-sdk`, check `vulkan_validation` and leave
+`vulkan_sync` unchecked. Switch to Vulkan, exercise rotation and background/resume,
+and generate an interactive bugreport ZIP. Include whether the scene rendered correctly.
+After this passes, build with both options unchecked for performance measurement.
+Validation adds a large native layer and affects timing, so its APK is unsuitable for FPS
+comparison. Both options together are rejected because waiting can hide the fault.
 
-The matching platform translation unit now fixes those requests: require every queue
-capability bit, reserve capacity for a shared protected queue, request exactly one
-protected queue from its selected family, and retrieve queues with explicit flags via
-`vkGetDeviceQueue2`. Protected memory and multiview are enabled only through the
-existing Vulkan 1.1 feature structure. Too little capacity fails initialization.
-All private class layouts and scene features remain unchanged. These new device
-changes still require tablet validation.
-
-Validation warnings now use warning severity instead of error severity. Repetitive
-pipeline-eviction informational lines are removed; completion checks are retained.
-Surface rotation and unused vertex-attribute messages are advisories, not suppressed
-or grounds to change rendering. Qualcomm VKDBGUTILWARN003 messages remain visible;
-the report does not identify a sufficiently specific corrective action.
-
-The next isolation build is `0.2.0-vkvalidate`: in **Run workflow**, select this branch,
-check `vulkan_validation`, and leave `vulkan_sync` unchecked. It bundles the pinned
-Khronos Android validation layer with archive checksum verification, explicitly enables
-object lifetime checks and synchronization validation, and records warnings/errors
-with the prefix `Vulkan validation:` in the Android logs. A missing layer fails
-initialization; it never silently runs without validation. Normal builds package no
-layer. Both diagnostics together are rejected because the queue wait can hide the fault.
-
-On the tablet, switch to Vulkan, wait about 10 seconds (the scene may be slower or
-black), switch back to OpenGL ES if possible, and immediately produce an interactive
-bugreport ZIP. Upload the whole ZIP and state whether Vulkan displayed correctly.
-No adb commands, log extraction or device settings are required. Check for
-`Vulkan validation active` before interpreting the report; no validation errors does
-not exclude a driver bug or a timing-dependent fault. Even if validation changes the
-symptom, its result alone does not prove a fix. Use it to identify invalid object
-lifetime/synchronization, then retain resources until the associated GPU submissions
-complete and retest without either diagnostic. Scene quality and animation are unchanged.
+Material uniform batching remains disabled for Vulkan while this lifetime change is
+isolated. Restoring batching is a separate experiment. Removing an eviction stall does
+not establish that Vulkan is faster than OpenGL ES; compare the resulting APK on the tablet.
+Qualcomm and surface-rotation advisories remain visible. Scene quality is unchanged.
 
 Static batches share only bit-identical vertices and use 16-bit indices. Triangle order, UVs,
 tangent frames and colors are preserved. Current mesh payload drops from 64,784,496 to 59,593,916
@@ -197,13 +157,14 @@ gradle --no-daemon :app:assembleRelease
 
 APK: `android/app/build/outputs/apk/release/app-release.apk`.
 
-`prepare-scene.py` downloads SHA-256-pinned CC0 source maps and the matching official Filament
+`prepare-scene.py` downloads SHA-256-pinned CC0 source maps and the matching fork SDK
 host tools, compiles materials with `matc`, and prefilters the HDR environment with `cmgen`.
 It fails on download/hash errors; Gradle fails if scene assets have not been prepared. Generated
 files live in `.generated/` and downloaded dependencies in `.deps/`; neither is committed.
-The first asset preparation downloads roughly 73 MiB of tools and 12 MiB of source assets.
+Source assets require about 12 MiB; the complete SDK is downloaded separately.
 
-Filament uses the official prebuilt Android native SDK. SDL3 is statically linked from
+Filament uses the complete fork SDK pinned by `filament.json`. The Android workflow builds
+and saves this SDK on first use of a revision; subsequent runs reuse it. SDL3 is statically linked from
 this repository's `sdl3-static` Release. `download-deps.sh` checks the release metadata
 and SHA-256, then installs its static library, headers, CMake package and matching SDL
 Android Java sources in `.deps/sdl3/`. Because this is a private repository, local builds
@@ -218,7 +179,7 @@ previously caused an unresolved `__hash_memory` symbol.
 nor PRs trigger APK builds. Successful builds replace the same
 `test-build` prerelease / `FilamentSDL3-test-arm64.apk`. No Actions Artifacts are used.
 
-The workflow downloads the SDL3 static SDK, prepares all scene assets, checks geometry FPS
+The workflow builds or reuses the pinned Filament SDK, downloads the SDL3 static SDK, prepares all scene assets, checks geometry FPS
 accounting and effects, builds the APK, verifies the exported `JNI_OnLoad` and absence of
 `libSDL3.so`, checks packaged materials/textures/environment maps, and verifies ZIP integrity,
 manifest parsing,
@@ -270,16 +231,16 @@ pixels at short and long running times. Noise uses high-precision integer hashin
 exposed in high precision before being stored in Filament's material inputs, avoiding FP16 overflow.
 Run `python3 tests/particles.py` on Linux with Mesa EGL installed.
 
-The Android workflow also runs `bash scripts/test-vulkan.sh` using the official matching
-Linux Filament SDK, Clang/libc++ 20 and Mesa lavapipe. It renders 16 complete frames with
+The Android workflow also runs `bash scripts/test-vulkan.sh` using the matching fork
+Linux Filament SDK, Clang/libc++ 18 and Mesa lavapipe. It renders 16 complete frames with
 multiple frames in flight, recreates the swapchain halfway through, and verifies GPU
 readback. A second run injects `VK_SUBOPTIMAL_KHR` after every successful acquisition to
 exercise the actual Filament acquire loop through the same adapter as Android. The pixel
 check examines RGB and variation in the scene center, excluding alpha and the HUD; opaque
 black, a clear color and HUD-only output fail. `tests/pixels.cpp` checks those failure cases.
-The Vulkan platform headers omitted from the SDK are fetched from the matching Filament
-tag by `scripts/download-vulkan.py`, with every Git blob ID verified. The platform
-subclasses use `-fno-rtti`, matching the prebuilt SDK. A software Vulkan test cannot verify the Adreno driver or Android surface lifecycle on the tablet.
+The SDK includes the platform headers needed by the application. Platform subclasses use
+`-fno-rtti`, matching the SDK. A software Vulkan test cannot verify the Adreno driver or
+Android surface lifecycle on the tablet.
 
 Geometry checks cover determinism, finite coordinates/UVs/tangents, normalized tangent frames,
 index bounds, degenerate triangles, ground winding, layer presence and mobile geometry budgets.

@@ -10,8 +10,6 @@ import tempfile
 from PIL import Image
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-HOST_SHA256 = '9e88f9d6aee7956c081448f237305988570a5bca76fed6e0d88ee1137110af1f'
-HOST_URL = 'https://github.com/google/filament/releases/download/v1.78.1/filament-v1.78.1-linux.tgz'
 
 
 def download(url, path, digest):
@@ -35,12 +33,8 @@ def main():
     args = parser.parse_args()
     tools = args.tools
     if tools is None:
-        archive = ROOT / '.deps/filament-host-1.78.1.tgz'
-        download(HOST_URL, archive, HOST_SHA256)
-        host = ROOT / '.deps/host'
-        host.mkdir(parents=True, exist_ok=True)
-        subprocess.run(['tar', '--no-same-owner', '-xzf', str(archive), '-C', str(host)], check=True)
-        tools = host / 'filament/bin'
+        subprocess.run(['python3', str(ROOT / 'scripts/download-filament.py')], check=True)
+        tools = ROOT / '.deps/host/filament/bin'
     for tool in ['matc', 'cmgen']:
         if not (tools / tool).is_file():
             raise RuntimeError(f'Missing Filament tool: {tools / tool}')

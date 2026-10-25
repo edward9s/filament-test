@@ -1,39 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Use official prebuilt Filament and the repository SDL3 static SDK.
-FILAMENT_VERSION=1.78.1
-FILAMENT_SHA256=4346d06e0312b64a11fb26cbc387cd0b4687165c9cabaeeaa6f855fc6d44160f
-
+# Build/download the complete checksum-verified fork SDK before SDL3.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mkdir -p "$ROOT/.deps"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-
-if [[ ! -s "$ROOT/.deps/filament/lib/arm64-v8a/libfilament.a" ||
-      ! -f "$ROOT/.deps/filament/include/filament/Engine.h" ]]; then
-    curl -fL --retry 3 \
-      "https://github.com/google/filament/releases/download/v${FILAMENT_VERSION}/filament-v${FILAMENT_VERSION}-android-native.tgz" \
-      -o "$TMP/filament.tgz"
-    echo "${FILAMENT_SHA256}  $TMP/filament.tgz" | sha256sum -c -
-    mkdir -p "$TMP/filament-extract"
-    tar --no-same-owner -xzf "$TMP/filament.tgz" -C "$TMP/filament-extract"
-    engine_h="$(find "$TMP/filament-extract" -type f -path '*/include/filament/Engine.h' -print -quit)"
-    if [[ -z "$engine_h" ]]; then
-        echo "Cannot find Filament headers in official archive" >&2
-        exit 1
-    fi
-    sdk_root="$(dirname "$(dirname "$(dirname "$engine_h")")")"
-    mkdir -p "$ROOT/.deps/filament"
-    cp -a "$sdk_root/." "$ROOT/.deps/filament/"
-fi
-
-test -s "$ROOT/.deps/filament/lib/arm64-v8a/libfilament.a"
-
-# Public Vulkan platform headers must match the prebuilt Filament release.
-python3 "$ROOT/scripts/download-vulkan.py"
-python3 "$ROOT/scripts/prepare-pipeline.py"
-
+python3 "$ROOT/scripts/download-filament.py"
 
 # Consume only the SDK published by build_sdl.yml; never rebuild SDL or use its AAR.
 SDL_REPOSITORY="${GITHUB_REPOSITORY:-edward9s/filament-test}"
@@ -85,4 +58,4 @@ if ! sdl_ready; then
     rm -rf "$SDL_DIR"
     mv "$TMP/sdl-sdk" "$SDL_DIR"
 fi
-echo "Ready: Filament $FILAMENT_VERSION native arm64, SDL3 $SDL_VERSION static arm64 (repository Release)"
+echo "Ready: pinned Filament fork native arm64, SDL3 $SDL_VERSION static arm64 (repository Release)"

@@ -15,11 +15,22 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(NOT DEFINED FILAMENT_SDK OR FILAMENT_SDK STREQUAL "")
-    message(FATAL_ERROR "Set FILAMENT_SDK to the unpacked official Filament Android native distribution.")
+    message(FATAL_ERROR "Set FILAMENT_SDK to the unpacked pinned Filament fork Android SDK.")
 endif()
 
 if(NOT EXISTS "${FILAMENT_SDK}/include/filament/Engine.h")
     message(FATAL_ERROR "Invalid FILAMENT_SDK: missing include/filament/Engine.h")
+endif()
+
+if(NOT EXISTS "${FILAMENT_SDK}/SDK-INFO.json")
+    message(FATAL_ERROR "Missing fork SDK metadata. Run scripts/download-deps.sh.")
+endif()
+file(READ "${FILAMENT_SDK}/SDK-INFO.json" SDK_INFO)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/filament.json" SDK_PIN)
+string(JSON SDK_REVISION GET "${SDK_INFO}" revision)
+string(JSON PIN_REVISION GET "${SDK_PIN}" revision)
+if(NOT SDK_REVISION STREQUAL PIN_REVISION)
+    message(FATAL_ERROR "Filament SDK revision does not match filament.json")
 endif()
 
 set(FILAMENT_LIB_DIR "${FILAMENT_SDK}/lib/${ANDROID_ABI}")
@@ -45,28 +56,12 @@ find_package(SDL3 REQUIRED CONFIG COMPONENTS SDL3-static
     PATHS "${SDL3_SDK}" NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
 
 add_library(main SHARED src/main.cpp src/Forest.cpp src/Geometry.cpp src/FpsHud.cpp src/Effects.cpp src/EffectsGeometry.cpp)
-# Replace pinned pipeline-cache and device setup units, preserving their ABI.
-# Its definitions satisfy archive references before the original backend object is pulled.
-set(PIPELINE_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/.deps/pipeline")
-if(NOT EXISTS "${PIPELINE_SOURCE}/Pipeline.cpp" OR NOT EXISTS "${PIPELINE_SOURCE}/Platform.cpp")
-    message(FATAL_ERROR "Missing corrected pipeline source. Run scripts/download-deps.sh.")
-endif()
-target_sources(main PRIVATE "${PIPELINE_SOURCE}/Pipeline.cpp" "${PIPELINE_SOURCE}/Platform.cpp")
-target_include_directories(main SYSTEM PRIVATE
-    "${PIPELINE_SOURCE}/filament/backend/src/vulkan"
-    "${PIPELINE_SOURCE}/filament/backend/src"
-    "${PIPELINE_SOURCE}/filament/backend/include"
-    "${PIPELINE_SOURCE}/libs/utils/include"
-    "${PIPELINE_SOURCE}/third_party/vkmemalloc/include")
-set_source_files_properties("${PIPELINE_SOURCE}/Pipeline.cpp" "${PIPELINE_SOURCE}/Platform.cpp" PROPERTIES COMPILE_DEFINITIONS NDEBUG)
-
 target_compile_definitions(main PRIVATE FOREST_VULKAN_SYNC=$<BOOL:${FOREST_VULKAN_SYNC}>
     FOREST_VULKAN_VALIDATION=$<BOOL:${FOREST_VULKAN_VALIDATION}>)
 target_include_directories(main PRIVATE "${FILAMENT_SDK}/include")
-if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.deps/headers/include/bluevk/BlueVK.h")
-    message(FATAL_ERROR "Missing pinned Filament platform headers. Run scripts/download-deps.sh.")
+if(NOT EXISTS "${FILAMENT_SDK}/include/bluevk/BlueVK.h")
+    message(FATAL_ERROR "Incomplete fork SDK: missing BlueVK headers")
 endif()
-target_include_directories(main SYSTEM PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/.deps/headers/include")
 # The prebuilt Filament platform classes have no RTTI; derived platforms must match.
 target_compile_options(main PRIVATE -Wall -Wextra -fno-rtti)
 
