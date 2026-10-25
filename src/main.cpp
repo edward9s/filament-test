@@ -74,7 +74,7 @@ public:
         engine_->flushAndWait();
         SDL_Log("Filament %s scene uploads complete (material UBO batching %s)",
             backend_==backend::Backend::VULKAN?"Vulkan":"OpenGL ES",
-            backend_==backend::Backend::VULKAN?"disabled":"default");
+            backend_==backend::Backend::VULKAN?"enabled":"default");
     }
     ~Demo() {
         if(!engine_)return;
