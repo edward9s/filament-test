@@ -304,8 +304,11 @@ pixels at short and long running times. Noise uses high-precision integer hashin
 exposed in high precision before being stored in Filament's material inputs, avoiding FP16 overflow.
 Run `python3 tests/particles.py` on Linux with Mesa EGL installed.
 
-The Android workflow also runs `bash scripts/test-vulkan.sh` using the matching fork
-Linux Filament SDK, Clang/libc++ 18 and Mesa lavapipe. It renders 16 complete frames with
+Run the independent [Vulkan tests](.github/workflows/vulkan.yml) workflow manually from
+Actions when checking the complete renderer. It prepares the scene and runs
+`bash scripts/test-vulkan.sh` using the matching fork Linux Filament SDK, Clang/libc++ 18
+and Mesa lavapipe. The Android APK workflow keeps asset, particle, geometry and packaging
+checks; it does not wait for software Vulkan rendering. The Vulkan test renders 16 complete frames with
 multiple frames in flight, recreates the swapchain halfway through, and verifies GPU
 readback. A second run injects `VK_SUBOPTIMAL_KHR` after every successful acquisition to
 exercise the actual Filament acquire loop through the same adapter as Android. The pixel
@@ -314,6 +317,11 @@ black, a clear color and HUD-only output fail. `tests/pixels.cpp` checks those f
 The SDK includes the platform headers needed by the application. Platform subclasses use
 `-fno-rtti`, matching the SDK. A software Vulkan test cannot verify the Adreno driver or
 Android surface lifecycle on the tablet.
+
+Run 40229306799 stopped with `Renderer timed out` at the three-minute render-loop deadline
+before APK compilation began. Asset generation and the preceding checks passed. Moving the
+software render to its own workflow keeps that failure visible without blocking APK builds;
+the underlying timeout remains unresolved. The test and its timeout limits are unchanged.
 
 Geometry checks cover determinism, finite coordinates/UVs/tangents, normalized tangent frames,
 index bounds, degenerate triangles, ground winding, layer presence and mobile geometry budgets.

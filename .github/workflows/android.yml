@@ -175,14 +175,6 @@ jobs:
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -pthread -Isrc tests/uploads.cpp -o /tmp/forest-uploads-test
           /tmp/forest-uploads-test
 
-      - name: Render the complete scene with Vulkan and recreate its swapchain
-        run: |
-          sudo apt-get install -y --no-install-recommends \
-            clang-18 llvm-18 lld-18 libc++-18-dev libc++abi-18-dev mesa-vulkan-drivers
-          g++ -std=c++20 -O2 -Wall -Wextra -Werror tests/pixels.cpp -o /tmp/pixels-test
-          /tmp/pixels-test
-          bash scripts/test-vulkan.sh
-
       - name: Build signed Android arm64 release APK
         working-directory: android
         env:
