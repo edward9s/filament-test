@@ -2,6 +2,15 @@ name: Android test build
 
 on:
   workflow_dispatch:
+    inputs:
+      vulkan_sync:
+        description: 'GPU lifetime diagnostic (slower; unsuitable for FPS comparisons)'
+        type: boolean
+        default: false
+      vulkan_validation:
+        description: 'Trace Vulkan object lifetime and synchronization errors (queue wait must be off)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -24,6 +33,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
+      - name: Reject unsupported diagnostics on main
+        if: inputs.vulkan_sync || inputs.vulkan_validation
+        run: |
+          echo '::error::For Vulkan diagnostics, select feature/filament-vulkan-toggle in Use workflow from.'
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v4
 
