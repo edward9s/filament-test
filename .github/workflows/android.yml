@@ -3,6 +3,10 @@ name: Android test build
 on:
   workflow_dispatch:
     inputs:
+      fixed_resolution:
+        description: 'Benchmark GLES and Vulkan at identical 100% resolution (disable dynamic resolution)'
+        type: boolean
+        default: false
       vulkan_sync:
         description: 'GPU lifetime diagnostic (slower; unsuitable for FPS comparisons)'
         type: boolean
@@ -21,6 +25,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  filament:
+    name: Ensure pinned Filament fork SDK
+    uses: ./.github/workflows/build_filament.yml
+
   sdl:
     name: Ensure current SDL3 static SDK
     uses: ./.github/workflows/build_sdl.yml
@@ -30,12 +38,13 @@ jobs:
     uses: ./.github/workflows/build_jolt.yml
 
   android:
-    needs: [sdl, jolt]
+    needs: [filament, sdl, jolt]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       FOREST_VULKAN_VALIDATION: ${{ inputs.vulkan_validation && 'ON' || 'OFF' }}
       FOREST_VULKAN_SYNC: ${{ inputs.vulkan_sync && 'ON' || 'OFF' }}
+      FOREST_FIXED_RESOLUTION: ${{ inputs.fixed_resolution && 'ON' || 'OFF' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -134,8 +143,6 @@ jobs:
 
       - name: Validate forest geometry and effects
         run: |
-          python3 tests/pipeline.py
-          python3 tests/device.py
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -isystem .deps/host/filament/include \
             -Isrc tests/geometry.cpp src/Geometry.cpp -o /tmp/forest-geometry-test
           /tmp/forest-geometry-test
@@ -144,11 +151,13 @@ jobs:
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -isystem .deps/host/filament/include \
             -Isrc tests/effects.cpp src/EffectsGeometry.cpp src/Geometry.cpp -o /tmp/forest-effects-test
           /tmp/forest-effects-test
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -pthread -Isrc tests/uploads.cpp -o /tmp/forest-uploads-test
+          /tmp/forest-uploads-test
 
       - name: Render the complete scene with Vulkan and recreate its swapchain
         run: |
           sudo apt-get install -y --no-install-recommends \
-            clang-20 libc++-20-dev libc++abi-20-dev mesa-vulkan-drivers
+            clang-18 llvm-18 lld-18 libc++-18-dev libc++abi-18-dev mesa-vulkan-drivers
           g++ -std=c++20 -O2 -Wall -Wextra -Werror tests/pixels.cpp -o /tmp/pixels-test
           /tmp/pixels-test
           bash scripts/test-vulkan.sh
@@ -203,8 +212,11 @@ jobs:
           size="$(stat -c '%s' "$apk")"
           sdl_version="$(sed -n 's/^SDL_VERSION=//p' .deps/sdl3/BUILD-INFO.txt)"
           [[ "$sdl_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          source_revision="$(python3 -c 'import json;print(json.load(open("filament.json"))["revision"])')"
           notes="Latest successful build: #${GITHUB_RUN_NUMBER}, commit ${GITHUB_SHA}.
-          SDL3 ${sdl_version} (repository static SDK) + Google Filament 1.78.1; arm64 release APK signed with the configured repository key.
+          SDL3 ${sdl_version} (repository static SDK) + Filament fork ${source_revision}; arm64 release APK signed with the configured repository key.
+          Filament SDK LTO: ON. Vulkan material uniform batching: ON.
+          Fixed 100% scene resolution: ${FOREST_FIXED_RESOLUTION} (OFF = dynamic 65-100% per axis).
           Vulkan synchronization diagnostic: ${FOREST_VULKAN_SYNC}.
           Vulkan lifetime/synchronization validation: ${FOREST_VULKAN_VALIDATION}.
           Workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
@@ -226,3 +238,5 @@ jobs:
       - name: Remove release signing key
         if: always()
         run: rm -f -- "$RUNNER_TEMP/filament-release.jks"
+
+

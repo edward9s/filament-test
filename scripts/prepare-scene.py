@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -10,8 +11,6 @@ import tempfile
 from PIL import Image
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-HOST_SHA256 = '9e88f9d6aee7956c081448f237305988570a5bca76fed6e0d88ee1137110af1f'
-HOST_URL = 'https://github.com/google/filament/releases/download/v1.78.1/filament-v1.78.1-linux.tgz'
 
 
 def download(url, path, digest):
@@ -35,15 +34,13 @@ def main():
     args = parser.parse_args()
     tools = args.tools
     if tools is None:
-        archive = ROOT / '.deps/filament-host-1.78.1.tgz'
-        download(HOST_URL, archive, HOST_SHA256)
-        host = ROOT / '.deps/host'
-        host.mkdir(parents=True, exist_ok=True)
-        subprocess.run(['tar', '--no-same-owner', '-xzf', str(archive), '-C', str(host)], check=True)
-        tools = host / 'filament/bin'
-    for tool in ['matc', 'cmgen']:
-        if not (tools / tool).is_file():
-            raise RuntimeError(f'Missing Filament tool: {tools / tool}')
+        subprocess.run(['python3', str(ROOT / 'scripts/download-filament.py')], check=True)
+        tools = ROOT / '.deps/host/filament/bin'
+    suffix = '.exe' if os.name == 'nt' else ''
+    matc, cmgen = tools / ('matc' + suffix), tools / ('cmgen' + suffix)
+    for tool in [matc, cmgen]:
+        if not tool.is_file():
+            raise RuntimeError(f'Missing Filament tool: {tool}')
     destination = ROOT / '.generated/assets/forest'
     destination.parent.mkdir(parents=True, exist_ok=True)
     # Publish only after every download, conversion and shader compilation succeeds.
@@ -53,7 +50,7 @@ def main():
             source = ROOT / '.deps/scene' / (entry['name'] + pathlib.Path(entry['url']).suffix)
             download(entry['url'], source, entry['sha256'])
             if entry['name'] == 'environment':
-                subprocess.run([str(tools / 'cmgen'), '-q', '-s', '256', '-f', 'ktx',
+                subprocess.run([str(cmgen), '-q', '-s', '256', '-f', 'ktx',
                                 '--ibl-samples=128', '-x', str(output / 'environment'), str(source)], check=True)
                 for suffix in ['ibl', 'skybox']:
                     generated = output / 'environment' / f'environment_{suffix}.ktx'
@@ -69,7 +66,7 @@ def main():
                     (output / (entry['name'] + '.rgba')).write_bytes(image.tobytes())
             print(f"Prepared {entry['name']}", flush=True)
         for material in ['surface', 'foliage', 'canopy', 'hud', 'effects', 'water']:
-            subprocess.run([str(tools / 'matc'), '-a', 'opengl', '-a', 'vulkan', '-p', 'all',
+            subprocess.run([str(matc), '-a', 'opengl', '-a', 'vulkan', '-p', 'all',
                             '-o', str(output / (material + '.filamat')),
                             str(ROOT / 'materials' / (material + '.mat'))], check=True)
         shutil.copy(ROOT / 'assets/CREDITS.md', output / 'CREDITS.md')
@@ -81,3 +78,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

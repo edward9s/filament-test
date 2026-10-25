@@ -1,6 +1,7 @@
 #pragma once
 #include "Forest.h"
 #include "EffectsGeometry.h"
+#include "UploadPool.h"
 #include <array>
 
 namespace forest {
@@ -26,5 +27,7 @@ private:
     std::array<Batch,size_t(Effect::Count)> batches_{};
     std::array<filament::Material*,2> materials_{};
     std::array<utils::Entity,3> lights_{};
+    UploadPool<EffectMeshes> uploads_;
 };
 }
+

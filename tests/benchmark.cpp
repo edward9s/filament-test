@@ -10,10 +10,12 @@ int main() {
     constexpr int frames=1800;
     std::array<double,7> times{};
     size_t vertices=0;
+    forest::EffectMeshes meshes;
+    forest::effectMeshes(.12f,{3.07f,3.16f,9.54f},meshes); // Warm storage, including intermittent batches.
     for(auto& time:times) {
         const auto start=Clock::now();
         for(int frame=0;frame<frames;++frame) {
-            const auto meshes=forest::effectMeshes(frame/60.f,{3.07f,3.16f,9.54f});
+            forest::effectMeshes(frame/60.f,{3.07f,3.16f,9.54f},meshes);
             for(const auto& batch:meshes)vertices+=batch.size();
         }
         time=std::chrono::duration<double,std::micro>(Clock::now()-start).count()/frames;
@@ -22,3 +24,4 @@ int main() {
     std::cout<<"Median effect generation: "<<times[times.size()/2]<<" us/frame\n"
              <<"Generated vertices across seven trials: "<<vertices<<'\n';
 }
+

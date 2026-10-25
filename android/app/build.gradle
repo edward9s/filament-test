@@ -4,6 +4,10 @@ plugins {
 
 def filamentSdk = file('../../.deps/filament').absolutePath
 def sdl3Sdk = file('../../.deps/sdl3').absolutePath
+def fixedResolution = System.getenv('FOREST_FIXED_RESOLUTION') ?: 'OFF'
+if (!(fixedResolution in ['ON', 'OFF'])) {
+    throw new GradleException('FOREST_FIXED_RESOLUTION must be ON or OFF')
+}
 def vulkanSync = System.getenv('FOREST_VULKAN_SYNC') ?: 'OFF'
 if (!(vulkanSync in ['ON', 'OFF'])) {
     throw new GradleException('FOREST_VULKAN_SYNC must be ON or OFF')
@@ -36,7 +40,7 @@ android {
         }
         externalNativeBuild {
             cmake {
-                arguments "-DFILAMENT_SDK=${filamentSdk}", "-DSDL3_SDK=${sdl3Sdk}", "-DFOREST_VULKAN_SYNC=${vulkanSync}", "-DFOREST_VULKAN_VALIDATION=${vulkanValidation}"
+                arguments "-DFILAMENT_SDK=${filamentSdk}", "-DSDL3_SDK=${sdl3Sdk}", "-DFOREST_FIXED_RESOLUTION=${fixedResolution}", "-DFOREST_VULKAN_SYNC=${vulkanSync}", "-DFOREST_VULKAN_VALIDATION=${vulkanValidation}"
             }
         }
     }
@@ -123,3 +127,4 @@ if (vulkanValidation == 'ON') {
     }
     tasks.named('preBuild').configure { dependsOn 'verifyValidationLayer' }
 }
+

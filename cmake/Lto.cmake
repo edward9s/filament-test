@@ -1,0 +1,11 @@
+include_guard(GLOBAL)
+if(NOT CMAKE_INTERPROCEDURAL_OPTIMIZATION)
+    return()
+endif()
+
+include(CheckIPOSupported)
+check_ipo_supported(RESULT LTO_SUPPORTED OUTPUT LTO_ERROR LANGUAGES CXX)
+if(NOT LTO_SUPPORTED)
+    message(FATAL_ERROR "LTO is required but unavailable: ${LTO_ERROR}")
+endif()
+message(STATUS "LTO is required and supported")

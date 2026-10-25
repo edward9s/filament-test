@@ -2,6 +2,7 @@
 #include "Geometry.h"
 #include <math/mat3.h>
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <stdexcept>
 
@@ -22,11 +23,28 @@ void quad(std::vector<EffectVertex>& mesh,float3 a,float3 b,float3 c,float3 d,fl
     mesh.insert(mesh.end(),{{a,{0,0},color,frame},{b,{1,0},color,frame},{c,{1,1},color,frame},{d,{0,1},color,frame}});
 }
 struct Puff { float3 position; float width,height; float4 color; };
-void billboards(std::vector<EffectVertex>& mesh,std::vector<Puff>& puffs,float3 eye) {
-    std::stable_sort(puffs.begin(),puffs.end(),[&](const Puff& a,const Puff& b){
-        return length2(a.position-eye)>length2(b.position-eye);
-    });
-    for(const auto& p:puffs) {
+struct Puffs {
+    std::array<Puff,108> values;
+    size_t size=0;
+    void clear() {size=0;}
+    void push_back(Puff puff) {assert(size<values.size());values[size++]=puff;}
+};
+void billboards(std::vector<EffectVertex>& mesh,Puffs& puffs,float3 eye) {
+    // Stable back-to-front merge with stack scratch: equal distances keep their original order.
+    std::array<unsigned,108> order,scratch;
+    std::array<float,108> distances;
+    for(size_t i=0;i<puffs.size;++i) {order[i]=unsigned(i);distances[i]=length2(puffs.values[i].position-eye);}
+    auto farther=[&](unsigned a,unsigned b){return distances[a]>distances[b];};
+    for(size_t width=1;width<puffs.size;width*=2) {
+        for(size_t first=0;first<puffs.size;first+=width*2) {
+            const size_t middle=std::min(first+width,puffs.size),last=std::min(first+width*2,puffs.size);
+            std::merge(order.begin()+first,order.begin()+middle,
+                order.begin()+middle,order.begin()+last,scratch.begin()+first,farther);
+        }
+        std::copy_n(scratch.begin(),puffs.size,order.begin());
+    }
+    for(size_t i=0;i<puffs.size;++i) {
+        const auto& p=puffs.values[order[i]];
         float3 direction=eye-p.position;
         if(length2(direction)<1e-8f)direction={0,0,1};
         // A vertical camera direction still needs a well-defined billboard basis.
@@ -77,15 +95,15 @@ float effectLightIntensity(Effect effect,float seconds) {
         default:throw std::invalid_argument("Effect does not emit light");
     }
 }
-EffectMeshes effectMeshes(float seconds,float3 eye) {
+void effectMeshes(float seconds,float3 eye,EffectMeshes& meshes) {
     if(!std::isfinite(seconds)||seconds<0||!std::isfinite(eye.x)||!std::isfinite(eye.y)||!std::isfinite(eye.z))
         throw std::invalid_argument("Invalid effect time or camera");
-    EffectMeshes meshes;
+    for(auto& mesh:meshes)mesh.clear();
     const float age=blastAge(seconds),flash=lightningPulse(seconds);
     const std::array<bool,size_t(Effect::Count)> visible{true,age<2.5f,true,flash>=.003f,true,true};
     constexpr std::array<size_t,size_t(Effect::Count)> counts{312,432,180,144,208,1056};
     for(size_t i=0;i<meshes.size();++i)if(visible[i])meshes[i].reserve(counts[i]);
-    std::vector<Puff> puffs;puffs.reserve(108);
+    Puffs puffs;
     const auto fire=effectOrigin(Effect::Fire);
     for(unsigned i=0;i<54;++i) {
         const float seed=random(i+1),age=std::fmod(seconds*.75f+seed,1.f),angle=random(i+91)*2*pi;
@@ -185,6 +203,11 @@ EffectMeshes effectMeshes(float seconds,float3 eye) {
         puffs.push_back({p,size,size*1.15f,{shade,shade*1.01f,shade*1.04f,std::sin(pi*age)*.7f}});
     }
     billboards(meshes[size_t(Effect::Smoke)],puffs,eye);
+}
+EffectMeshes effectMeshes(float seconds,float3 eye) {
+    EffectMeshes meshes;
+    effectMeshes(seconds,eye,meshes);
     return meshes;
 }
 }
+

@@ -75,7 +75,9 @@ void Effects::load(const AssetReader& read) {
 }
 void Effects::animate(float seconds,float3 eye) {
     if(!materials_[0])throw std::logic_error("Effects are not loaded");
-    auto meshes=effectMeshes(seconds,eye);
+    auto upload=uploads_.acquire();
+    auto& meshes=upload.data();
+    effectMeshes(seconds,eye,meshes);
     for(size_t i=0;i<batches_.size();++i) {
         auto& b=batches_[i];
         const bool visible=!meshes[i].empty();
@@ -86,9 +88,8 @@ void Effects::animate(float seconds,float3 eye) {
         }
         if(!visible)continue;
         if(meshes[i].size()!=b.count)throw std::logic_error("Effects topology changed");
-        auto* vertices=new std::vector<EffectVertex>(std::move(meshes[i]));
-        b.vertices->setBufferAt(engine_,0,VertexBuffer::BufferDescriptor(vertices->data(),vertices->size()*sizeof(EffectVertex),
-            [](void*,size_t,void* user){delete static_cast<std::vector<EffectVertex>*>(user);},vertices));
+        b.vertices->setBufferAt(engine_,0,VertexBuffer::BufferDescriptor(meshes[i].data(),meshes[i].size()*sizeof(EffectVertex),
+            UploadPool<EffectMeshes>::uploadComplete,upload.retainForUpload()));
         b.material->setParameter("time",seconds);
     }
     auto& manager=engine_.getLightManager();
@@ -96,3 +97,4 @@ void Effects::animate(float seconds,float3 eye) {
         manager.setIntensity(manager.getInstance(lights_[i]),effectLightIntensity(lightEffects[i],seconds));
 }
 }
+

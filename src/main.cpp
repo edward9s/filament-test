@@ -16,7 +16,9 @@
 #include <utils/EntityManager.h>
 #include <android/native_window.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdio>
 #include <map>
 #include <memory>
 #include <set>
@@ -35,6 +37,48 @@ std::vector<uint8_t> readAsset(const std::string& path) {
     return {bytes,bytes+size};
 }
 struct CameraOrbit { float yaw=.24f, pitch=.12f, distance=13.f; };
+class FrameStats {
+public:
+    void reset() {*this=FrameStats{};}
+    void skipped() {++skips_;}
+    void submitted(uint64_t now,uint64_t cpu) {
+        if(!start_)start_=now;
+        if(previous_)intervals_[count_++%intervals_.size()]=double(now-previous_)*1e-6;
+        previous_=now;++frames_;cpuNs_+=cpu;
+    }
+    void report(Renderer& renderer,View& view,bool vulkan,int width,int height,float refreshRate) {
+        if(!start_ || previous_-start_<2'000'000'000ull)return;
+        const auto samples=std::min(count_,intervals_.size());
+        auto sorted=intervals_;
+        std::sort(sorted.begin(),sorted.begin()+samples);
+        const auto history=renderer.getFrameInfoHistory(1);
+        char main[32]="n/a",backend[32]="n/a",gpu[32]="n/a";
+        uint32_t frameId=0;
+        if(!history.empty()) {
+            const auto& frame=history[0];frameId=frame.frameId;
+            if(frame.beginFrame>0 && frame.endFrame>=frame.beginFrame)formatMs(main,frame.endFrame-frame.beginFrame);
+            if(frame.backendBeginFrame>0 && frame.backendEndFrame>=frame.backendBeginFrame)
+                formatMs(backend,frame.backendEndFrame-frame.backendBeginFrame);
+            // Some drivers expose no GPU timer; zero is not a measured zero-cost frame.
+            if(frame.gpuFrameDuration>0)formatMs(gpu,frame.gpuFrameDuration);
+        }
+        const auto scale=view.getLastDynamicResolutionScale();
+        SDL_Log("ForestPerf backend=%s mode=%s surface=%dx%d scale=%.3fx%.3f refresh-hz=%.2f "
+            "submitted-fps=%.2f interval-p50-ms=%.3f interval-p95-ms=%.3f cpu-submit-average-ms=%.3f "
+            "skipped-attempts=%llu latest-frame=%u filament-main-ms=%s backend-ms=%s gpu-ms=%s",
+            vulkan?"Vulkan":"OpenGL-ES",FOREST_FIXED_RESOLUTION?"fixed100":"dynamic",width,height,
+            double(scale.x),double(scale.y),double(refreshRate),
+            double(frames_-1)*1e9/double(previous_-start_),
+            samples?sorted[(samples-1)/2]:0.,samples?sorted[size_t(std::ceil(samples*.95))-1]:0.,
+            double(cpuNs_)*1e-6/double(frames_),static_cast<unsigned long long>(skips_),frameId,main,backend,gpu);
+        reset();
+    }
+private:
+    static void formatMs(char (&out)[32],int64_t ns) {std::snprintf(out,sizeof(out),"%.3f",double(ns)*1e-6);}
+    std::array<double,512> intervals_{};
+    size_t count_=0;
+    uint64_t start_=0,previous_=0,frames_=0,skips_=0,cpuNs_=0;
+};
 class Demo {
 public:
     Demo(SDL_Window* window, backend::Backend backend, CameraOrbit orbit, uint64_t start)
@@ -63,6 +107,10 @@ public:
         view_->setCamera(camera_);view_->setScene(scene_);
         camera_->setExposure(16.0f,1.0f/125.0f,100.0f);
         forest::Forest::configure(*view_);
+        if(FOREST_FIXED_RESOLUTION) {
+            auto resolution=view_->getDynamicResolutionOptions();resolution.enabled=false;
+            view_->setDynamicResolutionOptions(resolution);
+        }
         forest_=std::make_unique<forest::Forest>(*engine_,*scene_);
         forest_->load(readAsset);
         effects_=std::make_unique<forest::Effects>(*engine_,*scene_);
@@ -71,10 +119,12 @@ public:
         hud_->load(readAsset);
         hud_->setVulkan(backend_==backend::Backend::VULKAN);
         Renderer::FrameRateOptions rate;rate.interval=1;renderer_->setFrameRateOptions(rate);
+        updateDisplayInfo();
+        SDL_Log("Resolution mode: %s",FOREST_FIXED_RESOLUTION?"fixed 100%":"dynamic 65-100% per axis");
         engine_->flushAndWait();
         SDL_Log("Filament %s scene uploads complete (material UBO batching %s)",
             backend_==backend::Backend::VULKAN?"Vulkan":"OpenGL ES",
-            backend_==backend::Backend::VULKAN?"disabled":"default");
+            backend_==backend::Backend::VULKAN?"enabled":"default");
     }
     ~Demo() {
         if(!engine_)return;
@@ -92,6 +142,7 @@ public:
     void suspend() {
         active_=false;fingers_.clear();hudFingers_.clear();mouseHudDown_=false;
         if(hud_)hud_->reset();
+        stats_.reset();
         releaseSwapChain();
     }
     void event(const SDL_Event& e) {
@@ -99,7 +150,9 @@ public:
         case SDL_EVENT_WILL_ENTER_BACKGROUND: case SDL_EVENT_WINDOW_HIDDEN:
         case SDL_EVENT_WINDOW_MINIMIZED: suspend();break;
         case SDL_EVENT_DID_ENTER_FOREGROUND: case SDL_EVENT_WINDOW_SHOWN:
-        case SDL_EVENT_WINDOW_RESTORED: active_=true;break;
+        case SDL_EVENT_WINDOW_RESTORED: active_=true;updateDisplayInfo();break;
+        case SDL_EVENT_WINDOW_DISPLAY_CHANGED: case SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED:
+            updateDisplayInfo();break;
         case SDL_EVENT_FINGER_DOWN:
             if(hud_->contains(e.tfinger.x,e.tfinger.y,width_,height_))
                 hudFingers_.insert(e.tfinger.fingerID);
@@ -123,7 +176,9 @@ public:
             if(fingers_.size()==1) orbit(e.tfinger.dx,e.tfinger.dy);
             else if(fingers_.size()==2) {
                 float next=pinchDistance();
-                if(next>.01f && oldDistance>.01f)distance_=std::clamp(distance_*oldDistance/next,4.f,24.f);
+                if(next>.01f && oldDistance>.01f) {
+                    distance_=std::clamp(distance_*oldDistance/next,4.f,24.f);cameraDirty_=true;
+                }
             }
             break;
         }
@@ -145,7 +200,7 @@ public:
         case SDL_EVENT_KEY_DOWN:
             if(!e.key.repeat && e.key.key==SDLK_V) switchRequested_=true;
             break;
-        case SDL_EVENT_MOUSE_WHEEL: distance_=std::clamp(distance_-e.wheel.y,4.f,24.f);break;
+        case SDL_EVENT_MOUSE_WHEEL: distance_=std::clamp(distance_-e.wheel.y,4.f,24.f);cameraDirty_=true;break;
         default: break;
         }
     }
@@ -155,6 +210,7 @@ public:
             SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER,nullptr));
         if(native!=native_) {
             hud_->reset();
+            stats_.reset();
             releaseSwapChain();
             if(native) {
                 ANativeWindow_acquire(native);
@@ -167,24 +223,47 @@ public:
                     ANativeWindow_getFormat(native_));
             }
         }
-        SDL_GetWindowSizeInPixels(window_,&width_,&height_);
+        int width=0,height=0;
+        SDL_GetWindowSizeInPixels(window_,&width,&height);
+        if(width!=width_ || height!=height_) {
+            width_=width;height_=height;
+            if(width_>0 && height_>0) {
+                view_->setViewport({0,0,uint32_t(width_),uint32_t(height_)});
+                camera_->setProjection(52.0,double(width_)/height_,.1,100,Camera::Fov::VERTICAL);
+            }
+            hud_->reset();stats_.reset();
+        }
         if(!swapChain_ || width_<=0 || height_<=0) {hud_->reset();SDL_Delay(20);return;}
-        view_->setViewport({0,0,uint32_t(width_),uint32_t(height_)});
-        camera_->setProjection(52.0,double(width_)/height_,.1,100,Camera::Fov::VERTICAL);
+        const uint64_t attemptStart=SDL_GetTicksNS();
+        if(!renderer_->beginFrame(swapChain_)) {
+            stats_.skipped();
+            // Back off only rejected attempts. Never add a wait to a rendered frame.
+            SDL_Delay(1);return;
+        }
         const double horizontal=distance_*std::cos(pitch_);
         const float3 eye{float(horizontal*std::sin(yaw_)),1.6f+distance_*std::sin(pitch_),float(-3+horizontal*std::cos(yaw_))};
-        camera_->lookAt(eye,{0,1.6,-3},{0,1,0});
+        if(cameraDirty_) {camera_->lookAt(eye,{0,1.6,-3},{0,1,0});cameraDirty_=false;}
         const float seconds=float(SDL_GetTicks()-start_)*.001f;
         forest_->animate(seconds);
-        if(renderer_->beginFrame(swapChain_)) {
-            effects_->animate(seconds,eye);
-            renderer_->render(view_);
-            hud_->render(*renderer_,width_,height_);
-            renderer_->endFrame();
-            hud_->completedFrame(double(SDL_GetTicksNS())*1e-9);
-        }
+        effects_->animate(seconds,eye);
+        renderer_->render(view_);
+        hud_->render(*renderer_,width_,height_);
+        renderer_->endFrame();
+        const uint64_t submitted=SDL_GetTicksNS();
+        hud_->completedFrame(double(submitted)*1e-9);
+        stats_.submitted(submitted,submitted-attemptStart);
+        stats_.report(*renderer_,*view_,backend_==backend::Backend::VULKAN,width_,height_,refreshRate_);
     }
 private:
+    void updateDisplayInfo() {
+        const auto* mode=SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window_));
+        const float next=mode && mode->refresh_rate>0?mode->refresh_rate:0;
+        if(next!=refreshRate_) {stats_.reset();if(hud_)hud_->reset();}
+        refreshRate_=next;
+        Renderer::DisplayInfo info;info.refreshRate=refreshRate_;renderer_->setDisplayInfo(info);
+        if(refreshRate_>0)SDL_Log("Display refresh rate: %.3f Hz",double(refreshRate_));
+        else SDL_Log("Display refresh rate unavailable; Filament display pacing disabled");
+    }
     void releaseSwapChain() {
         if(swapChain_) {
             engine_->destroy(swapChain_);
@@ -207,7 +286,7 @@ private:
         const float aspect=height_>0?float(width_)/height_:1.f;
         return length((a-b)*float2{aspect,1});
     }
-    void orbit(float x,float y) {yaw_-=x*4;pitch_=std::clamp(pitch_+y*2,.03f,.85f);}
+    void orbit(float x,float y) {yaw_-=x*4;pitch_=std::clamp(pitch_+y*2,.03f,.85f);cameraDirty_=true;}
     SDL_Window* window_;
     backend::Backend backend_;
     // The supplied platform must outlive Engine::destroy() in this object\'s destructor.
@@ -228,6 +307,9 @@ private:
     bool mouseHudDown_=false;
     bool switchRequested_=false;
     float yaw_,pitch_,distance_;
+    bool cameraDirty_=true;
+    float refreshRate_=0;
+    FrameStats stats_;
     int width_=0,height_=0;
     bool active_=true;
     uint64_t start_;
@@ -270,3 +352,4 @@ int main(int,char**) {
     }
     SDL_DestroyWindow(window);SDL_Quit();return result;
 }
+
