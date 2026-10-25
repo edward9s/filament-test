@@ -165,6 +165,9 @@ jobs:
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -isystem .deps/host/filament/include \
             -Isrc tests/geometry.cpp src/Geometry.cpp -o /tmp/forest-geometry-test
           /tmp/forest-geometry-test
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -isystem .deps/host/filament/include \
+            tests/rocks.cpp -o /tmp/forest-rocks-test
+          /tmp/forest-rocks-test
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -Isrc tests/fps.cpp -o /tmp/forest-fps-test
           /tmp/forest-fps-test
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -isystem .deps/host/filament/include \
