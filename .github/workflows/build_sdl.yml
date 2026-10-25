@@ -59,6 +59,7 @@ jobs:
               f"SDL3-{version}-android-arm64-v8a-static.tar.gz",
               "SHA256SUMS",
           }
+          pending_checksums = {name + ".sha256" for name in expected if name.endswith(".tar.gz")}
 
           if os.environ["RELEASE_EXISTS"] == "false":
               build = True
@@ -79,14 +80,20 @@ jobs:
                   reason = f"Upgrade SDL3 {current_version} -> {version}"
               else:
                   found = {item["name"] for item in release.get("assets", []) if item.get("size", 0) > 0}
-                  if found - expected:
+                  # Matrix jobs upload these checksums before the publish job removes them.
+                  # Their presence means a previous build has not finished publishing.
+                  if found - expected - pending_checksums:
                       raise SystemExit(
                           "SDL3 release has unexpected assets; "
                           f"expected {sorted(expected)}, found {sorted(found)}"
                       )
                   elif found != expected:
                       build = True
-                      reason = f"Rebuild incomplete SDL3 release: missing {sorted(expected - found)}"
+                      reason = (
+                          "Rebuild unfinished SDL3 release: "
+                          f"missing {sorted(expected - found)}, "
+                          f"pending checksums {sorted(found & pending_checksums)}"
+                      )
                   else:
                       build = False
                       reason = f"SDL3 {version} and all five assets already exist"
@@ -170,7 +177,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends ninja-build pkg-config \
             libasound2-dev libpulse-dev libudev-dev \
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev \
-            libxi-dev libxss-dev libxkbcommon-dev libwayland-dev wayland-protocols \
+            libxi-dev libxss-dev libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols \
             libdecor-0-dev libdrm-dev libgbm-dev libegl1-mesa-dev libgl1-mesa-dev
 
       - name: Build static SDL3 for Linux x64
