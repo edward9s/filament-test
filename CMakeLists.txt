@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.22.1)
 project(filament_sdl3_test LANGUAGES CXX)
 option(FOREST_VULKAN_SYNC "Diagnostic: wait for Vulkan drawing before presentation and GC" OFF)
+option(FOREST_FIXED_RESOLUTION "Compare both backends at fixed 100% scene resolution" OFF)
 
 option(FOREST_VULKAN_VALIDATION "Diagnostic: enable bundled Vulkan validation layer" OFF)
 if(FOREST_VULKAN_VALIDATION AND FOREST_VULKAN_SYNC)
@@ -66,6 +67,7 @@ find_package(SDL3 REQUIRED CONFIG COMPONENTS SDL3-static
 
 add_library(main SHARED src/main.cpp src/Forest.cpp src/Geometry.cpp src/FpsHud.cpp src/Effects.cpp src/EffectsGeometry.cpp)
 target_compile_definitions(main PRIVATE FOREST_VULKAN_SYNC=$<BOOL:${FOREST_VULKAN_SYNC}>
+    FOREST_FIXED_RESOLUTION=$<BOOL:${FOREST_FIXED_RESOLUTION}>
     FOREST_VULKAN_VALIDATION=$<BOOL:${FOREST_VULKAN_VALIDATION}>)
 target_include_directories(main PRIVATE "${FILAMENT_SDK}/include")
 if(NOT EXISTS "${FILAMENT_SDK}/include/bluevk/BlueVK.h")
@@ -90,4 +92,5 @@ target_link_libraries(main PRIVATE
 )
 # Required to pull SDL3's JNI_OnLoad out of libSDL3.a and register Android JNI methods.
 target_link_options(main PRIVATE "-Wl,-u,JNI_OnLoad" "-Wl,--gc-sections")
+
 

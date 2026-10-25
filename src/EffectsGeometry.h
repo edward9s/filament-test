@@ -23,4 +23,7 @@ float lightningPulse(float seconds);
 float effectLightIntensity(Effect effect,float seconds);
 // Invisible explosion/strike batches are empty; active batches keep fixed topology.
 EffectMeshes effectMeshes(float seconds, filament::math::float3 eye);
+// Refill existing arrays without surrendering their capacity to an asynchronous upload.
+void effectMeshes(float seconds, filament::math::float3 eye, EffectMeshes& meshes);
 }
+

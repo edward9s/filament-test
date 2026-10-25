@@ -11,9 +11,10 @@ test -x "${ANDROID_HOME:?}/ndk/$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/cl
 # Debug tests exercise the real handle allocator, resource manager and Vulkan pipeline.
 cmake -S "$source" -B "$source/out/sdk-debug" -G Ninja \
     -DCMAKE_BUILD_TYPE=Debug -DFILAMENT_SKIP_SAMPLES=ON -DFILAMENT_SKIP_SDL2=ON
-cmake --build "$source/out/sdk-debug" --target test_vulkan_pipeline test_utils --parallel 2
+cmake --build "$source/out/sdk-debug" --target test_vulkan_pipeline test_utils test_frame_info --parallel 2
 "$source/out/sdk-debug/filament/backend/test_vulkan_pipeline"
 "$source/out/sdk-debug/libs/utils/test_utils"
+"$source/out/sdk-debug/filament/test/test_frame_info"
 
 # Build and install the complete host SDK and material/environment tools together.
 cmake -S "$source" -B "$source/out/sdk-host" -G Ninja \

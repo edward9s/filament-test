@@ -77,12 +77,40 @@ See the [Vulkan acquisition result contract](https://docs.vulkan.org/refpages/la
 
 For repeatable FPS measurements, wait after each switch for shaders to warm up, use
 identical camera positions and scene conditions, and record multiple runs in each
-backend. This demo retains its existing automatic dynamic resolution (65–100% per
-axis) to preserve normal interactive behavior: FPS alone cannot establish the
-faster renderer when the two backends choose different internal resolutions. For a
-strict same-resolution test, temporarily disable dynamic resolution in
-`Forest::configure()` for both backends and rebuild once; compare frame times,
-1% lows, and thermal behavior.
+backend. This demo retains automatic dynamic resolution (65–100% per axis) by default:
+FPS alone cannot establish the faster renderer when the backends choose different
+internal resolutions. For a same-resolution comparison, select `fixed_resolution`
+in **Actions → Android test build**. That one APK renders both backends at fixed
+100% resolution, with the same geometry, effects, shadows and postprocessing.
+Leave `vulkan_sync` and `vulkan_validation` unchecked for performance runs.
+
+Every two seconds, Android logcat prints a `ForestPerf` line containing the backend,
+resolution mode, surface size, last scene resolution scale, reported display refresh
+rate, submitted FPS, submission-interval p50/p95, average app submission time, rejected
+`beginFrame()` attempts, and the latest completed Filament frame's main-thread,
+backend-thread and GPU elapsed times. GPU timers that are unavailable are printed as
+`n/a`. These latest-frame values are not interval averages. Submission intervals include
+skipped attempts, event processing and pacing; they are not actual display presentation
+times or a GPU-only benchmark. The scene scale is read after rendering the main view;
+it does not describe the separate HUD or every postprocessing attachment's dimensions.
+Each interval keeps at most 512 submission-interval samples. Backgrounding, surface,
+size and backend changes reset statistics. Capture with:
+
+```sh
+adb logcat -v threadtime -s SDL
+```
+
+The app supplies SDL's current display refresh rate to Filament and updates it on
+display/foreground events. Unknown refresh rates are explicitly reported; no guessed
+60 Hz value is substituted. Rejected frames back off for 1 ms before retrying, without
+rebuilding animations or uploading effects. This is a retry backoff, not an Android
+Choreographer vsync callback. Camera/projection state is updated only when it changes.
+
+Effect vertices reuse a bounded pool of completed CPU upload arrays. Every submitted
+batch retains its storage until Filament's buffer-release callback; arrays never use a
+frame-count guess to determine whether they are safe to overwrite. Particle sorting
+uses stable index merges with cached distances and stack scratch. Geometry, particle
+ordering, vertex attributes and shader precision are preserved.
 
 ## Performance
 
@@ -123,7 +151,7 @@ bytes (8.0%); batches that exceed the 16-bit vertex limit fail early. Vertex ind
 one-time CPU work during scene loading; it does not run each frame. Particle shaders reject
 transparent borders before evaluating noise. Unlit particles do not rebuild unused tangent frames.
 
-The CPU effect benchmark simulates 1,800 frames per trial and reports the median of seven trials.
+The CPU effect benchmark reuses warmed storage, simulates 1,800 frames per trial and reports the median of seven trials.
 A Linux comparison measured 103.2 → 68.7 µs per frame; this measures effect mesh generation only,
 not total frame time or Android FPS. The 15 GLES particle readbacks at five kinds and three times
 were byte-identical before/after the shader change; expanded static triangle attributes and all
@@ -220,6 +248,8 @@ g++ -std=c++20 -O2 -Wall -Wextra -Werror -Isrc tests/fps.cpp -o /tmp/forest-fps-
 g++ -std=c++20 -O2 -Wall -Wextra -Werror -isystem .deps/host/filament/include \
   -Isrc tests/effects.cpp src/EffectsGeometry.cpp src/Geometry.cpp -o /tmp/forest-effects-test
 /tmp/forest-effects-test
+g++ -std=c++20 -O2 -Wall -Wextra -Werror -pthread -Isrc tests/uploads.cpp -o /tmp/forest-uploads-test
+/tmp/forest-uploads-test
 python3 scripts/check-apk.py android/app/build/outputs/apk/release/app-release.apk
 ```
 
@@ -268,5 +298,6 @@ first frame, and initialization and swapchain readiness are logged separately.
 Official references: [Filament](https://github.com/google/filament/releases/tag/v1.78.1),
 [SDL3](https://github.com/libsdl-org/SDL/releases/tag/release-3.4.18),
 [asset credits](assets/CREDITS.md).
+
 
 

@@ -41,11 +41,12 @@ def main():
     debug = source / 'out' / ('sdk-debug-' + args.platform)
     run('cmake', '-S', source, '-B', debug, '-DCMAKE_BUILD_TYPE=Debug', *common)
     run('cmake', '--build', debug, '--config', 'Debug', '--target',
-        'test_vulkan_pipeline', 'test_utils', '--parallel', '2')
+        'test_vulkan_pipeline', 'test_utils', 'test_frame_info', '--parallel', '2')
     component = Path('Debug') if windows else Path()
     suffix = '.exe' if windows else ''
     run(debug / 'filament/backend' / component / ('test_vulkan_pipeline' + suffix))
     run(debug / 'libs/utils' / component / ('test_utils' + suffix))
+    run(debug / 'filament/test' / component / ('test_frame_info' + suffix))
     build = source / 'out' / ('sdk-release-' + args.platform)
     run('cmake', '-S', source, '-B', build, '-DCMAKE_BUILD_TYPE=Release',
         f'-DCMAKE_INSTALL_PREFIX={sdk}', '-DFILAMENT_BUILD_TESTING=OFF',

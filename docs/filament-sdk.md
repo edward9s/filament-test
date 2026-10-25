@@ -7,7 +7,7 @@ snapshot; merging the fix does not require changing the application's engine ver
 A commit remains a valid source identity after its branch has been merged.
 
 The checkout action uses exactly `filament.json.revision` as its `ref`. The current pin
-is `d74ff02b482ebefc2ff5f819585a461a287e8677`, the pipeline fix on `fix/vulkan-lifetime`.
+includes the pipeline fix and frame-history storage reuse on `fix/vulkan-lifetime`.
 It does not select a recently updated branch or follow branch-head changes. Updating
 the engine requires changing this pin to the chosen tested commit.
 
@@ -27,7 +27,7 @@ fail immediately. There is no fallback to an official SDK or a replacement sourc
 
 All SDK libraries are built in Release mode. Windows uses MSVC, matching static SDL3's
 CRT selection; macOS verifies both architectures with `lipo`. Vulkan is enabled on both
-new desktop targets. Each native build runs the pipeline lifetime and utils tests first.
+new desktop targets. Each native build runs the pipeline lifetime, utils and frame-history tests first.
 Linux also builds Android with its matching host tools. Samples and SDL2 are excluded.
 `filament.json` sets `lto` to `ON`. Release builds enable both Filament LTO and CMake IPO;
 the native APK and software Vulkan readback also link with LTO. Linux uses matching LLVM
@@ -57,6 +57,10 @@ this workflow on the application branch. No Actions setup is required in the for
 The pipeline fix uses existing command-buffer resource ownership. Cache age controls eviction;
 GPU fences control release of command references. No idle wait is added to cache collection.
 Vulkan material uniform batching is explicitly enabled through `RendererEngine.h`.
+Frame-history updates retain their backing allocation, while public history snapshots copy
+only the requested entries. A native NOOP-backend regression verifies storage reuse across
+40 frames, newest-first order, bounded copies and snapshot independence. This changes CPU
+bookkeeping; no GPU completion or presentation synchronization is removed.
 
 Android run #25 succeeded using the fork SDK with validation OFF and queue waiting OFF.
 It includes the pipeline ownership fix and a Release-mode SDK. This does not establish

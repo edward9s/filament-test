@@ -49,6 +49,22 @@ int main() {
     assert(effectMeshes(5.52f,eye)[size_t(Effect::Blast)].size()==initial[size_t(Effect::Blast)].size());
     assert(effectMeshes(2.0f,eye)[size_t(Effect::Lightning)].empty());
     assert(effectMeshes(4.92f,eye)[size_t(Effect::Lightning)].size()==initial[size_t(Effect::Lightning)].size());
+    EffectMeshes reused;
+    effectMeshes(.12f,eye,reused);
+    std::array<const EffectVertex*,size_t(Effect::Count)> storage{};
+    for(size_t i=0;i<reused.size();++i)storage[i]=reused[i].data();
+    for(float time:{.3f,3.f,4.92f,5.52f,120.f}) {
+        effectMeshes(time,eye,reused);
+        const auto fresh=effectMeshes(time,eye);
+        for(size_t i=0;i<reused.size();++i) {
+            assert(reused[i].data()==storage[i]);
+            assert(reused[i].size()==fresh[i].size());
+            for(size_t j=0;j<reused[i].size();++j) {
+                const auto& a=reused[i][j];const auto& b=fresh[i][j];
+                assert(a.position==b.position && a.uv==b.uv && a.color==b.color && a.tangent==b.tangent);
+            }
+        }
+    }
     for(Effect a:{Effect::Fire,Effect::Blast,Effect::Water,Effect::Lightning,Effect::Smoke})
         for(Effect b:{Effect::Fire,Effect::Blast,Effect::Water,Effect::Lightning,Effect::Smoke})
             if(a!=b)assert(length(effectOrigin(a)-effectOrigin(b))>3);
@@ -75,3 +91,4 @@ int main() {
     }
     std::cout<<count/4<<" animated quads, six fixed-size batches; determinism, topology, lighting, timing, separation and invalid inputs passed\n";
 }
+

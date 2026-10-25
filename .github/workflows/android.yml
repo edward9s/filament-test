@@ -3,6 +3,10 @@ name: Android test build
 on:
   workflow_dispatch:
     inputs:
+      fixed_resolution:
+        description: 'Benchmark GLES and Vulkan at identical 100% resolution (disable dynamic resolution)'
+        type: boolean
+        default: false
       vulkan_sync:
         description: 'GPU lifetime diagnostic (slower; unsuitable for FPS comparisons)'
         type: boolean
@@ -40,6 +44,7 @@ jobs:
     env:
       FOREST_VULKAN_VALIDATION: ${{ inputs.vulkan_validation && 'ON' || 'OFF' }}
       FOREST_VULKAN_SYNC: ${{ inputs.vulkan_sync && 'ON' || 'OFF' }}
+      FOREST_FIXED_RESOLUTION: ${{ inputs.fixed_resolution && 'ON' || 'OFF' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -146,6 +151,8 @@ jobs:
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -isystem .deps/host/filament/include \
             -Isrc tests/effects.cpp src/EffectsGeometry.cpp src/Geometry.cpp -o /tmp/forest-effects-test
           /tmp/forest-effects-test
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -pthread -Isrc tests/uploads.cpp -o /tmp/forest-uploads-test
+          /tmp/forest-uploads-test
 
       - name: Render the complete scene with Vulkan and recreate its swapchain
         run: |
@@ -209,6 +216,7 @@ jobs:
           notes="Latest successful build: #${GITHUB_RUN_NUMBER}, commit ${GITHUB_SHA}.
           SDL3 ${sdl_version} (repository static SDK) + Filament fork ${source_revision}; arm64 release APK signed with the configured repository key.
           Filament SDK LTO: ON. Vulkan material uniform batching: ON.
+          Fixed 100% scene resolution: ${FOREST_FIXED_RESOLUTION} (OFF = dynamic 65-100% per axis).
           Vulkan synchronization diagnostic: ${FOREST_VULKAN_SYNC}.
           Vulkan lifetime/synchronization validation: ${FOREST_VULKAN_VALIDATION}.
           Workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
@@ -230,4 +238,5 @@ jobs:
       - name: Remove release signing key
         if: always()
         run: rm -f -- "$RUNNER_TEMP/filament-release.jks"
+
 
