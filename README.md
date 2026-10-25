@@ -115,8 +115,9 @@ device completion once. Frames without eviction do not wait. This is deliberatel
 conservative across queues; it is not per-resource fence tracking and can still cause
 an eviction-time stall. No global Vulkan function hooks or changed cache retention
 thresholds are used. Every downloaded private source/header is checksum pinned, including Android-only
-mutex, condition-variable and tracing headers. The software-test script also compiles
-the Android conditional paths to catch missing platform headers before packaging.
+mutex, condition-variable and tracing headers. Linux software rendering uses the host
+compiler; Android compilation uses the real pinned NDK and its Android sysroot. Do not
+simulate Android by defining __ANDROID__ on a Linux libc++ toolchain.
 
 For the next tablet test, keep `vulkan_sync` **unchecked** and `vulkan_validation`
 **checked**, to verify the original lifetime error disappears without the per-frame
