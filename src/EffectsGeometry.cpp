@@ -83,15 +83,20 @@ float lightningPulse(float seconds) {
 }
 float effectLightIntensity(Effect effect,float seconds) {
     if(!std::isfinite(seconds)||seconds<0)throw std::invalid_argument("Invalid effect light time");
+    // Match the local/direct-sun illumination ratio at 3 m: Godot uses energy/r,
+    // Filament uses lumens/(4*pi*r*r). Both have the same range cutoff shape.
+    // Reference suns: Godot 1.1 energy, Filament 110000 lux. This is a local
+    // brightness calibration, not equality of the two distance curves or images.
+    constexpr float lumensPerEnergy=4.f*pi*3.f*(110000.f/1.1f);
     switch(effect) {
         case Effect::Fire:
-            return 1100000.f*(1.f+.12f*std::sin(seconds*13.f)+.08f*std::sin(seconds*23.f));
+            return lumensPerEnergy*1.2f*(1.f+.13f*std::sin(seconds*13.f)+.09f*std::sin(seconds*23.f));
         case Effect::Blast: {
             const float age=blastAge(seconds);
-            return age<2.5f?6000000.f*std::exp(-age*3.2f):0.f;
+            return age<2.5f?lumensPerEnergy*8.f*std::exp(-age*7.f):0.f;
         }
         case Effect::Lightning:
-            return 9000000.f*lightningPulse(seconds);
+            return lumensPerEnergy*4.f*lightningPulse(seconds);
         default:throw std::invalid_argument("Effect does not emit light");
     }
 }

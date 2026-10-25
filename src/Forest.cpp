@@ -79,6 +79,8 @@ void Forest::load(const AssetReader& read) {
         instance->setParameter("albedo",texture(std::string(name)+"_albedo",true),sampler);
         instance->setParameter("normalMap",normal(std::string(name)+"_normal"),sampler);
         instance->setParameter("arm",texture(std::string(name)+"_arm",false),sampler);
+        // Stone follows the source roughness like Godot; retain ground/bark tuning.
+        instance->setParameter("roughnessFloor",std::string(name)=="stone"?0.f:.48f);
     }
     leaves_=foliage->createInstance();instances_.push_back(leaves_);
     canopy_=material("canopy")->createInstance();instances_.push_back(canopy_);

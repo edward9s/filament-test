@@ -19,7 +19,7 @@ using EffectMeshes = std::array<std::vector<EffectVertex>, size_t(Effect::Count)
 filament::math::float3 effectOrigin(Effect effect);
 float blastAge(float seconds);
 float lightningPulse(float seconds);
-// Local point-light output in lumens, synchronized with the corresponding effect.
+// Local point-light output in lumens; Godot's light/sun ratio is calibrated at 3 m.
 float effectLightIntensity(Effect effect,float seconds);
 // Invisible explosion/strike batches are empty; active batches keep fixed topology.
 EffectMeshes effectMeshes(float seconds, filament::math::float3 eye);

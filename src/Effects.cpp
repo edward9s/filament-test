@@ -61,16 +61,14 @@ void Effects::load(const AssetReader& read) {
         if(result!=RenderableManager::Builder::Success)throw std::runtime_error("Cannot create effects renderable");
         scene_.addEntity(b.entity);
     }
-    // The sunny outdoor exposure requires strong local light to tint nearby masonry.
-    // Keep the influence local; shadow maps for three animated point lights are costly on mobile.
-    const float3 colors[]={{1,.27f,.055f},{1,.46f,.12f},{.55f,.72f,1}};
-    const float heights[]={.95f,1.5f,2.7f};
-    const float radii[]={7.5f,9.f,8.5f};
+    // Match godot-test's linear colors, one-meter height and six-meter range.
+    // Keep three native point lights; their inverse-square attenuation is unchanged.
+    const float3 colors[]={{1,.32f,.06f},{1,.5f,.1f},{.45f,.65f,1}};
     for(size_t i=0;i<lights_.size();++i) {
         lights_[i]=utils::EntityManager::get().create();
         LightManager::Builder(LightManager::Type::POINT)
-            .position(effectOrigin(lightEffects[i])+float3{0,heights[i],0})
-            .color(colors[i]).intensity(0.f).falloff(radii[i]).castShadows(false)
+            .position(effectOrigin(lightEffects[i])+float3{0,1,0})
+            .color(colors[i]).intensity(0.f).falloff(6.f).castShadows(false)
             .build(engine_,lights_[i]);
         scene_.addEntity(lights_[i]);
     }
