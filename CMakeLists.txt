@@ -2,6 +2,11 @@ cmake_minimum_required(VERSION 3.22.1)
 project(filament_sdl3_test LANGUAGES CXX)
 option(FOREST_VULKAN_SYNC "Diagnostic: wait for Vulkan drawing before presentation and GC" OFF)
 
+option(FOREST_VULKAN_VALIDATION "Diagnostic: enable bundled Vulkan validation layer" OFF)
+if(FOREST_VULKAN_VALIDATION AND FOREST_VULKAN_SYNC)
+    message(FATAL_ERROR "Validation requires FOREST_VULKAN_SYNC=OFF to reproduce the fault")
+endif()
+
 if(NOT ANDROID)
     message(FATAL_ERROR "This starter currently targets Android only.")
 endif()
@@ -40,7 +45,8 @@ find_package(SDL3 REQUIRED CONFIG COMPONENTS SDL3-static
     PATHS "${SDL3_SDK}" NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
 
 add_library(main SHARED src/main.cpp src/Forest.cpp src/Geometry.cpp src/FpsHud.cpp src/Effects.cpp src/EffectsGeometry.cpp)
-target_compile_definitions(main PRIVATE FOREST_VULKAN_SYNC=$<BOOL:${FOREST_VULKAN_SYNC}>)
+target_compile_definitions(main PRIVATE FOREST_VULKAN_SYNC=$<BOOL:${FOREST_VULKAN_SYNC}>
+    FOREST_VULKAN_VALIDATION=$<BOOL:${FOREST_VULKAN_VALIDATION}>)
 target_include_directories(main PRIVATE "${FILAMENT_SDK}/include")
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.deps/headers/include/bluevk/BlueVK.h")
     message(FATAL_ERROR "Missing pinned Filament platform headers. Run scripts/download-deps.sh.")

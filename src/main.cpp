@@ -5,6 +5,9 @@
 #include "Effects.h"
 #include "RendererEngine.h"
 #include "SwapPlatform.h"
+#if FOREST_VULKAN_VALIDATION
+#include "ValidationPlatform.h"
+#endif
 #include <backend/platforms/VulkanPlatformAndroid.h>
 #include <filament/Camera.h>
 #include <filament/Renderer.h>
@@ -43,8 +46,13 @@ public:
         SDL_Log("Initializing Filament %s", backend_==backend::Backend::VULKAN?"Vulkan":"OpenGL ES");
         if(backend_==backend::Backend::VULKAN) {
             SDL_Log("Vulkan GPU synchronization diagnostic: %s",FOREST_VULKAN_SYNC?"ON":"OFF");
+            #if FOREST_VULKAN_VALIDATION
+            SDL_Log("Vulkan validation diagnostic: ON (queue wait OFF)");
+            platform_=std::make_unique<forest::ValidationPlatform<backend::VulkanPlatformAndroid>>();
+            #else
             platform_=std::make_unique<forest::SwapPlatform<backend::VulkanPlatformAndroid>>(
                 bool(FOREST_VULKAN_SYNC));
+            #endif
         }
         engine_=forest::createRendererEngine(backend_,platform_.get());
         if(!engine_) throw std::runtime_error(backend_==backend::Backend::VULKAN

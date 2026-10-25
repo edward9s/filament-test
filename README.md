@@ -98,18 +98,31 @@ SUBOPTIMAL acquisition adapter does not resolve this failure; its warning was no
 observed in the latest run. A suboptimal warning can also originate from presentation.
 The exact resource and responsible engine/driver code remain unconfirmed.
 
-For the next device check, run Android test build from this branch with `vulkan_sync`
-checked. This builds `0.2.0-vksync`, logs the first four acquire/present results, and waits
-for submitted Vulkan drawing inside the platform's present callback, before endFrame's
-cache garbage collection. Waiting after endFrame in the application would be too late.
-Release notes record whether this diagnostic is ON or OFF.
+The user confirmed that the synchronized `8003146` APK renders successfully on the
+Tab S8. Source is preserved on `baseline/vulkan-sync-8003146`. Before replacing the
+rolling APK, the workflow preserves the exact successful binary and its SHA-256 in
+release `vulkan-sync-8003146`; a mismatch stops the build instead of archiving the
+wrong APK. The baseline was built with `FOREST_VULKAN_SYNC=ON` (version `0.2.0-vksync`).
+It waits inside present, before endFrame cache collection, and is unsuitable for FPS
+comparisons. The exact faulty resource remains unknown.
 
-This is an isolation test, not a confirmed fix or a performance optimization. If the
-black screen disappears, it implicates overlapping GPU work and resource reclamation;
-that still does not identify a specific resource. If it persists, the new result logs
-help distinguish acquisition, drawing and presentation failures. The default is OFF;
-OpenGL ES and normal Vulkan synchronization behavior are preserved. Do not compare FPS
-from the diagnostic build against normal rendering.
+The next isolation build is `0.2.0-vkvalidate`: in **Run workflow**, select this branch,
+check `vulkan_validation`, and leave `vulkan_sync` unchecked. It bundles the pinned
+Khronos Android validation layer with archive checksum verification, explicitly enables
+object lifetime checks and synchronization validation, and records warnings/errors
+with the prefix `Vulkan validation:` in the Android logs. A missing layer fails
+initialization; it never silently runs without validation. Normal builds package no
+layer. Both diagnostics together are rejected because the queue wait can hide the fault.
+
+On the tablet, switch to Vulkan, wait about 10 seconds (the scene may be slower or
+black), switch back to OpenGL ES if possible, and immediately produce an interactive
+bugreport ZIP. Upload the whole ZIP and state whether Vulkan displayed correctly.
+No adb commands, log extraction or device settings are required. Check for
+`Vulkan validation active` before interpreting the report; no validation errors does
+not exclude a driver bug or a timing-dependent fault. Even if validation changes the
+symptom, its result alone does not prove a fix. Use it to identify invalid object
+lifetime/synchronization, then retain resources until the associated GPU submissions
+complete and retest without either diagnostic. Scene quality and animation are unchanged.
 
 Static batches share only bit-identical vertices and use 16-bit indices. Triangle order, UVs,
 tangent frames and colors are preserved. Current mesh payload drops from 64,784,496 to 59,593,916
