@@ -14,6 +14,10 @@ pipeline_includes=(
     -isystem .deps/pipeline/third_party/vkmemalloc/include
     -isystem "$host/include" -isystem .deps/headers/include
 )
+# Check Android-only private headers too; the software renderer uses generic mutexes.
+"${CXX:-clang++-20}" -std=c++20 -stdlib=libc++ -fno-rtti -DNDEBUG -D__ANDROID__ \
+    -Wall -Wextra -Werror -Wno-missing-field-initializers "${pipeline_includes[@]}" \
+    -fsyntax-only .deps/pipeline/Pipeline.cpp
 "${CXX:-clang++-20}" -std=c++20 -O2 -stdlib=libc++ -fno-rtti -DNDEBUG \
     -Wall -Wextra -Werror -Wno-missing-field-initializers "${pipeline_includes[@]}" \
     -c .deps/pipeline/Pipeline.cpp -o .generated/tests/pipeline.o
