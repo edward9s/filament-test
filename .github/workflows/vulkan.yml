@@ -1,0 +1,52 @@
+name: Vulkan tests
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: filament-vulkan-tests
+  cancel-in-progress: false
+
+jobs:
+  filament:
+    name: Ensure pinned Filament fork SDK
+    uses: ./.github/workflows/build_filament.yml
+
+  vulkan:
+    needs: filament
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Linux renderer dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 llvm-18 lld-18 libc++-18-dev libc++abi-18-dev \
+            libx11-6 mesa-vulkan-drivers
+          python3 -m pip install --disable-pip-version-check Pillow==11.3.0
+
+      - name: Fetch pinned Filament static SDK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/download-filament.py
+
+      - name: Prepare forest textures, environment and materials
+        run: python3 scripts/prepare-scene.py
+
+      - name: Validate scene pixel checks
+        run: |
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror tests/pixels.cpp -o /tmp/pixels-test
+          /tmp/pixels-test
+
+      - name: Render the complete scene with Vulkan and recreate its swapchain
+        run: bash scripts/test-vulkan.sh
