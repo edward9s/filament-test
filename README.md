@@ -205,6 +205,21 @@ previously caused an unresolved `__hash_memory` symbol.
 nor PRs trigger APK builds. Successful builds replace the same
 `test-build` prerelease / `FilamentSDL3-test-arm64.apk`. No Actions Artifacts are used.
 
+The three dependency workflows can also be run manually. Each publishes static SDKs for
+Linux x64, Windows x64, macOS universal and Android arm64 to its fixed dependency Release:
+
+| Workflow | Release | Linux archive |
+|---|---|---|
+| `build_sdl.yml` | `sdl3-static` | `SDL3-<version>-linux-x64-static.tar.gz` |
+| `build_filament.yml` | `filament-static` | `filament-linux.tgz` |
+| `build_jolt.yml` | `jolt-static` | `Jolt-<version>-linux-x64-static.tar.gz` |
+
+Linux SDKs target Ubuntu 24.04 x86_64. SDL3 includes X11 and Wayland support. Filament and
+Jolt use Clang/libc++ 18 with LTO; consumers must use a matching C++ toolchain and enable LTO
+when linking. Jolt includes Vulkan GPU compute shaders and its CMake export. Static SDKs
+still require their platform system libraries. Each Release includes `SHA256SUMS` for all
+four archives. Existing SDL3/Jolt releases without a Linux archive are rebuilt on the next run.
+
 The workflow builds or reuses the pinned Filament SDK, downloads the SDL3 static SDK, prepares all scene assets, checks geometry FPS
 accounting and effects, builds the APK, verifies the exported `JNI_OnLoad` and absence of
 `libSDL3.so`, checks packaged materials/textures/environment maps, and verifies ZIP integrity,

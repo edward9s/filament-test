@@ -52,6 +52,7 @@ jobs:
           version = os.environ["VERSION"]
           upstream = tuple(map(int, version.split(".")))
           expected = {
+              f"Jolt-{version}-linux-x64-static.tar.gz",
               f"Jolt-{version}-windows-x64-msvc-static.tar.gz",
               f"Jolt-{version}-macos-universal-static.tar.gz",
               f"Jolt-{version}-android-arm64-v8a-static.tar.gz",
@@ -88,7 +89,7 @@ jobs:
                       reason = "Rebuild Jolt with enabled LTO and platform GPU compute"
                   else:
                       build = False
-                      reason = f"Jolt {version} and all four assets already exist"
+                      reason = f"Jolt {version} and all five assets already exist"
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               print(f"version={version}", file=output)
@@ -133,6 +134,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - platform: linux-x64
+            runner: ubuntu-24.04
           - platform: windows-x64-msvc
             runner: windows-2022
           - platform: macos-universal
@@ -269,8 +272,8 @@ jobs:
           "$sdkmanager" "ndk;30.0.16248370"
           test -f "$ANDROID_HOME/ndk/30.0.16248370/build/cmake/android.toolchain.cmake"
 
-      - name: Install Vulkan SDK and DXC for Android shaders
-        if: matrix.platform == 'android-arm64-v8a'
+      - name: Install Vulkan SDK and DXC for Linux and Android shaders
+        if: matrix.platform == 'linux-x64' || matrix.platform == 'android-arm64-v8a'
         shell: bash
         run: |
           set -euo pipefail
@@ -278,6 +281,54 @@ jobs:
           command -v glslc
           command -v dxc
           test -x "$(dirname "$(command -v glslc)")/dxc"
+
+      - name: Install Linux C++ toolchain
+        if: matrix.platform == 'linux-x64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y --no-install-recommends ninja-build clang-18 llvm-18 lld-18 \
+            libc++-18-dev libc++abi-18-dev
+
+      - name: Build Linux x64 static library
+        if: matrix.platform == 'linux-x64'
+        shell: bash
+        env:
+          CC: clang-18
+          CXX: clang++-18
+        run: |
+          set -euo pipefail
+          cmake -S source/Build -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Distribution \
+            -DCMAKE_INSTALL_LIBDIR=lib \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DCMAKE_CXX_FLAGS=-stdlib=libc++ \
+            -DCMAKE_AR=/usr/bin/llvm-ar-18 -DCMAKE_RANLIB=/usr/bin/llvm-ranlib-18 \
+            -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld-18 \
+            -DCMAKE_REQUIRE_FIND_PACKAGE_Vulkan=ON \
+            -DVulkan_GLSLC_EXECUTABLE="$(command -v glslc)" \
+            -DJPH_BUILD_SHARED_LIBS=OFF \
+            -DINTERPROCEDURAL_OPTIMIZATION=ON \
+            -DGENERATE_DEBUG_SYMBOLS=OFF \
+            -DENABLE_ALL_WARNINGS=OFF \
+            -DJPH_USE_DX12=OFF -DJPH_USE_VK=ON \
+            -DJPH_USE_MTL=OFF -DJPH_USE_CPU_COMPUTE=ON \
+            -DUSE_SSE4_1=OFF -DUSE_SSE4_2=OFF \
+            -DUSE_AVX=OFF -DUSE_AVX2=OFF \
+            -DUSE_LZCNT=OFF -DUSE_TZCNT=OFF \
+            -DUSE_F16C=OFF -DUSE_FMADD=OFF \
+            -DTARGET_UNIT_TESTS=OFF -DTARGET_HELLO_WORLD=OFF \
+            -DTARGET_PERFORMANCE_TEST=OFF -DTARGET_SAMPLES=OFF \
+            -DTARGET_VIEWER=OFF
+          grep -q -- '-flto' build/build.ninja
+          grep -q -- '-DJPH_USE_VK' build/build.ninja
+          cmake --build build --target Jolt --parallel 4
+          cmake --install build --prefix "$PWD/stage"
+          test -s stage/lib/libJolt.a
+          test -s stage/include/Jolt/Jolt.h
+          test -s source/Jolt/Shaders/TestCompute.spv
+          test -s stage/share/Jolt/Shaders/TestCompute.spv
+          grep -Fxq 'INTERPROCEDURAL_OPTIMIZATION:BOOL=ON' build/CMakeCache.txt
 
       - name: Build Android ARM64 static library
         if: matrix.platform == 'android-arm64-v8a'
@@ -322,7 +373,7 @@ jobs:
           case "$PLATFORM" in
             windows-*) backend=DX12 ;;
             macos-*) backend=Metal ;;
-            android-*) backend=Vulkan ;;
+            android-*|linux-*) backend=Vulkan ;;
             *) echo "::error::Unsupported platform $PLATFORM"; exit 1 ;;
           esac
           printf 'JOLT_VERSION=%s\nPLATFORM=%s\nCONFIG=Distribution\nLTO=ON\nGPU_COMPUTE=%s\nCPU_COMPUTE=ON\n' \
@@ -366,7 +417,7 @@ jobs:
       RELEASE_TAG: jolt-static
       VERSION: ${{ needs.check.outputs.version }}
     steps:
-      - name: Verify all three platform archives
+      - name: Verify all four platform archives
         shell: bash
         run: |
           set -euo pipefail
@@ -378,6 +429,7 @@ jobs:
 
           cd dist
           files=(
+            "Jolt-$VERSION-linux-x64-static.tar.gz"
             "Jolt-$VERSION-windows-x64-msvc-static.tar.gz"
             "Jolt-$VERSION-macos-universal-static.tar.gz"
             "Jolt-$VERSION-android-arm64-v8a-static.tar.gz"
@@ -389,8 +441,8 @@ jobs:
             tar -tzf "$file" > "$file.contents"
             grep -Eq '(^|/)include/Jolt/Jolt\.h$' "$file.contents"
           done
-          [[ "$(find . -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 3 ]]
-          [[ "$(find . -maxdepth 1 -type f -name '*.sha256' | wc -l)" -eq 3 ]]
+          [[ "$(find . -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 4 ]]
+          [[ "$(find . -maxdepth 1 -type f -name '*.sha256' | wc -l)" -eq 4 ]]
           sha256sum "${files[@]}" > SHA256SUMS
 
       - name: Update rolling Release and remove older assets
@@ -404,15 +456,16 @@ jobs:
           Official Jolt Physics source: https://github.com/jrouwe/JoltPhysics/releases/tag/v$VERSION
 
           C++ static SDKs, Distribution build (LTO enabled, CPU compute enabled):
+          - Linux x64 / Ubuntu 24.04 / Clang 18 + libc++: libJolt.a + Vulkan GPU compute shaders
           - Windows x64 / MSVC: Jolt.lib + DX12 GPU compute shaders
           - macOS universal (x86_64 + arm64): libJolt.a + Metal GPU compute shaders
           - Android arm64-v8a / API 26 / NDK 30.0.16248370: libJolt.a + Vulkan GPU compute shaders
 
           Each archive contains the matching public headers, CMake export, license and build metadata.
-          SHA256SUMS covers the three archives. No Actions Artifacts are used.
+          SHA256SUMS covers the four archives. No Actions Artifacts are used.
           EOF
 
-          # Publish the complete manifest only after all three archives passed.
+          # Publish the complete manifest only after all four archives passed.
           gh release upload "$RELEASE_TAG" dist/SHA256SUMS \
             --clobber --repo "$GITHUB_REPOSITORY"
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > release.json
@@ -420,6 +473,7 @@ jobs:
           jq -r --arg version "$VERSION" '
             .assets[] |
             select(
+              .name != ("Jolt-" + $version + "-linux-x64-static.tar.gz") and
               .name != ("Jolt-" + $version + "-windows-x64-msvc-static.tar.gz") and
               .name != ("Jolt-" + $version + "-macos-universal-static.tar.gz") and
               .name != ("Jolt-" + $version + "-android-arm64-v8a-static.tar.gz") and
@@ -434,7 +488,7 @@ jobs:
 
           gh release edit "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Jolt $VERSION static SDK (Windows, macOS, Android)" \
+            --title "Jolt $VERSION static SDK (Linux, Windows, macOS, Android)" \
             --notes-file release-notes.txt \
             --prerelease --latest=false
 
