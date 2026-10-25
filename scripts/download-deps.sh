@@ -32,6 +32,7 @@ test -s "$ROOT/.deps/filament/lib/arm64-v8a/libfilament.a"
 
 # Public Vulkan platform headers must match the prebuilt Filament release.
 python3 "$ROOT/scripts/download-vulkan.py"
+python3 "$ROOT/scripts/prepare-pipeline.py"
 
 
 # Consume only the SDK published by build_sdl.yml; never rebuild SDL or use its AAR.

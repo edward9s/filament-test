@@ -106,6 +106,23 @@ wrong APK. The baseline was built with `FOREST_VULKAN_SYNC=ON` (version `0.2.0-v
 It waits inside present, before endFrame cache collection, and is unsuitable for FPS
 comparisons. The exact faulty resource remains unknown.
 
+The 09:32 validation report identifies `VUID-vkDestroyPipeline-pipeline-00765`:
+`vkDestroyPipeline` destroys pipelines still referenced by submitted command buffers,
+before the subsequent Adreno errors. Filament 1.78.1's cache evicts by age without
+checking actual completion. We compile the matching pipeline-cache translation unit
+with its unchanged ABI, correcting only `gc()`: before an eviction batch it waits for
+device completion once. Frames without eviction do not wait. This is deliberately
+conservative across queues; it is not per-resource fence tracking and can still cause
+an eviction-time stall. No global Vulkan function hooks or changed cache retention
+thresholds are used. Every downloaded private source/header is checksum pinned.
+
+For the next tablet test, keep `vulkan_sync` **unchecked** and `vulkan_validation`
+**checked**, to verify the original lifetime error disappears without the per-frame
+wait. Report whether it renders, and upload an interactive bugreport ZIP. After that
+passes, build with both unchecked for the normal-size APK and performance comparison.
+The queue/protected-feature initialization VUIDs in the report are separate SDK errors
+and are not fixed by this pipeline-only change. The tablet outcome remains unverified.
+
 The next isolation build is `0.2.0-vkvalidate`: in **Run workflow**, select this branch,
 check `vulkan_validation`, and leave `vulkan_sync` unchecked. It bundles the pinned
 Khronos Android validation layer with archive checksum verification, explicitly enables

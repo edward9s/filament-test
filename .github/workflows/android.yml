@@ -134,6 +134,7 @@ jobs:
 
       - name: Validate forest geometry and effects
         run: |
+          python3 tests/pipeline.py
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -isystem .deps/host/filament/include \
             -Isrc tests/geometry.cpp src/Geometry.cpp -o /tmp/forest-geometry-test
           /tmp/forest-geometry-test
