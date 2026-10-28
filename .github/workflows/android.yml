@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       fixed_resolution:
-        description: 'Benchmark GLES and Vulkan at identical 100% resolution (disable dynamic resolution)'
+        description: 'Native 100% scene resolution (unchecked: Auto 65-100%)'
         type: boolean
-        default: false
+        default: true
       vulkan_sync:
         description: 'GPU lifetime diagnostic (slower; unsuitable for FPS comparisons)'
         type: boolean
@@ -237,6 +237,15 @@ jobs:
           Workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           APK size: ${size} bytes.
           SHA-256: ${digest}"
+          {
+            echo '## Evaluation settings'
+            echo "- Native 100%: ${FOREST_FIXED_RESOLUTION} (OFF = Auto 65-100% per axis)"
+            echo '- Backend: OpenGL ES on launch; tap FPS to switch to Vulkan'
+            echo "- Vulkan sync diagnostic: ${FOREST_VULKAN_SYNC}"
+            echo "- Vulkan validation: ${FOREST_VULKAN_VALIDATION}"
+            echo "- Commit: ${GITHUB_SHA}"
+            echo "- APK SHA-256: ${digest}"
+          } >> "$GITHUB_STEP_SUMMARY"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$tag" "$apk" --clobber --repo "$GITHUB_REPOSITORY"
             gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${tag}" \

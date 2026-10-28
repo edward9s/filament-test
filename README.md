@@ -83,6 +83,12 @@ FPS alone cannot establish the faster renderer when the backends choose differen
 internal resolutions. For a same-resolution comparison, select `fixed_resolution`
 in **Actions → Android test build**. That one APK renders both backends at fixed
 100% resolution, with the same geometry, effects, shadows and postprocessing.
+`fixed_resolution` is checked by default for new manual runs. Uncheck it only for
+an Auto 65–100% test. The APK still starts with OpenGL ES; tap FPS to select Vulkan
+when comparing against Godot Mobile and Bevy. Verify `mode=fixed100` and `scale=1.000x1.000`
+in `ForestPerf` after the scene is ready. The Actions summary and release notes
+record the build settings and APK SHA-256; changing workflow inputs does not change
+an APK that has already been built or installed.
 Leave `vulkan_sync` and `vulkan_validation` unchecked for performance runs.
 
 Every two seconds, Android logcat prints a `ForestPerf` line containing the backend,
