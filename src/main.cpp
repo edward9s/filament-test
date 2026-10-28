@@ -260,11 +260,12 @@ public:
         renderer_->render(view_);
         hud_->render(*renderer_,width_,height_);
         renderer_->endFrame();
+        const auto renderDone=benchmarkActive_?benchmark::now():0;
         const uint64_t submitted=SDL_GetTicksNS();
         hud_->completedFrame(double(submitted)*1e-9);
         if(benchmarkActive_) {
             const auto completed=benchmark::now();
-            benchmarkFrame(completed,{0,0,seconds,double(effectsStart-sceneStart)*1e-6,double(renderStart-effectsStart)*1e-6,double(completed-renderStart)*1e-6,double(beginDone-waitStart)*1e-6});
+            benchmarkFrame(completed,{0,0,seconds,double(effectsStart-sceneStart)*1e-6,double(renderStart-effectsStart)*1e-6,double(renderDone-renderStart)*1e-6,double(beginDone-waitStart)*1e-6});
         } else {
             stats_.submitted(submitted,submitted-attemptStart);
             stats_.report(*renderer_,*view_,backend_==backend::Backend::VULKAN,width_,height_,refreshRate_);
@@ -287,7 +288,7 @@ private:
     int64_t animationOrigin_=0,startedAt_=0;
     benchmark::Run run_;
     std::string runId_,device_,thermal_,gpu_="null",driver_="null",driverInfo_="null";
-    std::string root() const {return std::string(SDL_GetAndroidInternalStoragePath())+"/benchmarks";}
+    std::string root() const {const char* path=SDL_GetAndroidInternalStoragePath();if(!path)throw std::runtime_error("Android internal storage unavailable");return std::string(path)+"/benchmarks";}
     void benchmarkCommand() {
         const int command=benchmark::command.exchange(0);
         if(command==10 && benchmarkActive_ && reference_){restoreBenchmark();return;}
@@ -303,7 +304,11 @@ private:
         preset_=command==9?0:unsigned(command-1);reference_=command==9;
         benchmarkActive_=true;benchmark::repetition=1;
         fingers_.clear();hudFingers_.clear();mouseHudDown_=false;switchRequested_=false;
-        beginBenchmarkRun();
+        safeBeginBenchmarkRun();
+    }
+    void safeBeginBenchmarkRun() {
+        try {beginBenchmarkRun();}
+        catch(const std::exception& error) {restoreBenchmark();benchmark::status=4000;SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"Benchmark initialization failed",error.what(),window_);}
     }
     void beginBenchmarkRun() {
         run_.start();startedAt_=benchmark::unixMs();
@@ -328,6 +333,12 @@ private:
         auto bloom=saved_.bloom;bloom.enabled=preset_!=5;view_->setBloomOptions(bloom);
         effects_->setEnabled(preset_!=7);
         animationOrigin_=benchmark::now();drawn_=0;observedHistory_.clear();benchmark::status=7000;
+        if(!reference_) {
+            run_.reason="process interrupted before completion";
+            benchmark::save(run_,root(),runId_,identity(),metadata());
+            benchmark::write(std::filesystem::path(root())/runId_/".pending","in progress");
+            run_.reason.clear();
+        }
     }
     void restoreBenchmark() {
         view_->setDynamicResolutionOptions(saved_.resolution);view_->setTemporalAntiAliasingOptions(saved_.taa);
@@ -350,7 +361,7 @@ private:
         if(build!=std::string::npos)engine.replace(build,18,"\"build\": \"debug\"");
         #endif
         std::ostringstream out;out<<std::setprecision(12)<<"{"<<identity()<<",\"repetition\":"<<benchmark::repetition.load()<<",\"started_at\":"<<startedAt_
-            <<",\"warmup_seconds\":30,\"measure_seconds\":60,\"engine\":"<<engine<<",\"scene\":"<<benchmark::sceneJson
+            <<",\"reference_only\":"<<boolean(reference_)<<",\"reference_animation_seconds\":"<<(reference_?"38.52":"null")<<",\"warmup_seconds\":30,\"measure_seconds\":60,\"engine\":"<<engine<<",\"scene\":"<<benchmark::sceneJson
             <<",\"device\":"<<device_<<",\"environment\":{\"backend\":"<<quote(backend_==backend::Backend::VULKAN?"Vulkan":"OpenGL ES")
             <<",\"surface_size\":["<<width_<<','<<height_<<"],\"render_size\":["<<std::lround(width_*scale.x)<<','<<std::lround(height_*scale.y)
             <<"],\"dynamic_resolution\":false,\"gpu_profiling\":"<<boolean(preset_==1)<<",\"vsync_requested\":\"engine_default\",\"presentation_mode\":"<<(backend_==backend::Backend::VULKAN?"\"FIFO\"":"null")
@@ -358,7 +369,7 @@ private:
             <<",\"taa\":"<<boolean(view_->getTemporalAntiAliasingOptions().enabled)<<",\"fxaa\":"<<boolean(view_->getAntiAliasing()==AntiAliasing::FXAA)
             <<",\"shadows\":"<<boolean(view_->isShadowingEnabled())<<",\"bloom\":"<<boolean(view_->getBloomOptions().enabled)<<",\"effects\":"<<boolean(preset_!=7)
             <<",\"shadow_distance_m\":65,\"shadow_cascades\":3,\"shadow_map_size\":2048,\"ssao\":"<<boolean(view_->getAmbientOcclusionOptions().enabled)<<",\"fog\":"<<boolean(view_->getFogOptions().enabled)
-            <<",\"fixed_scale_via_dynamic_resolution_api\":"<<boolean(preset_==6)<<"},\"metrics\":{"
+            <<",\"post_processing\":"<<boolean(view_->isPostProcessingEnabled())<<",\"shadow_filter_enum\":"<<unsigned(view_->getShadowType())<<",\"bloom_strength\":"<<view_->getBloomOptions().strength<<",\"fixed_scale_via_dynamic_resolution_api\":"<<boolean(preset_==6)<<"},\"metrics\":{"
             <<"\"cpu_scene_ms\":"<<metric("cpu","steady_clock","Forest.animate material uniform updates only","filament.forest.animate")
             <<",\"cpu_effects_ms\":"<<metric("cpu","steady_clock","Effects.animate CPU geometry, sorting, uploads and local light updates","filament.effects.animate")
             <<",\"cpu_submit_ms\":"<<metric("cpu","steady_clock","before renderer.render(main view) through HUD render and renderer.endFrame; includes internal waits","filament.render.endFrame")
@@ -378,7 +389,7 @@ private:
             benchmark::save(run_,root(),runId_,identity(),metadata());
         }
         catch(const std::exception& e){restoreBenchmark();benchmark::status=4000;SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"Benchmark save failed",e.what(),window_);return;}
-        if(valid && benchmark::repetition<3){++benchmark::repetition;beginBenchmarkRun();}
+        if(valid && benchmark::repetition<3){++benchmark::repetition;safeBeginBenchmarkRun();}
         else {const bool cancelled=run_.reason=="cancelled by user";restoreBenchmark();benchmark::status=valid?3000:cancelled?5000:4000;}
     }
     void invalidateBenchmark(const char* reason) {if(benchmarkActive_){if(reference_){restoreBenchmark();benchmark::status=4000;}else{run_.stop(reason);finishBenchmark();}}}

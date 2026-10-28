@@ -59,7 +59,7 @@ Standard disables adaptive resolution and preserves the existing native pipeline
 
 No per-frame GPU wait was added. The existing lifecycle initialization/destruction waits remain. Standard avoids detailed history collection, but Filament may retain internal frame timers. Vulkan FIFO is fixed in the pinned fork; GLES retains its original EGL default interval. Neither is claimed uncapped. Missing GPU/driver strings are null.
 
-Local checks: C++ protocol/statistics tests; native Android arm64 Release `libmain.so` built with the pinned 1.78.1 fork and NDK 30; Java SDL activity/bridge compiled against API 35. Full signed APK assembly, SAF/PixelCopy, actual 65% target dimensions, GPU timer support, overhead and tablet lifecycle/visual checks remain pending.
+Local checks: C++ protocol/statistics tests; native Android arm64 Release `libmain.so` built with the pinned 1.78.1 fork and NDK 30; Java SDL activity/bridge compiled against API 35. A manually assembled unsigned Release APK also passed ABI/DEX/JNI/provenance checks (this is not the signed Gradle workflow). The C++ exporter passes a Python round-trip check including all CPU columns and Unicode JSON escaping. Repository-key signed Gradle packaging, SAF/PixelCopy, actual 65% dimensions, GPU timer support, overhead and tablet lifecycle/visual checks remain pending.
 
 Sources: [pinned Renderer API](https://github.com/edward9s/filament/blob/48dc0de08cba360502ad62cbc29b9a0a6e75abc2/filament/include/filament/Renderer.h), [Vulkan presentation implementation](https://github.com/edward9s/filament/blob/48dc0de08cba360502ad62cbc29b9a0a6e75abc2/filament/backend/src/vulkan/platform/VulkanPlatformSwapChainImpl.cpp).
 
@@ -80,3 +80,5 @@ No Galaxy Tab S8 is attached to this environment. No tablet FPS, screenshot equi
 The report also provides a separate within-engine A/B sensitivity table. It only allows the selected setting to differ and keeps GPU Diagnostic deltas explicitly labeled profiling overhead; it does not turn those deltas into a unique hardware diagnosis.
 
 APK contents are checked with `python3 benchmark/check_apk.py ENGINE path.apk --commit SHA`: arm64 ELF, DEX integrity, runtime bridge/scripts, required scene assets and baked commit. This supplements the existing signer/zip alignment checks; it does not replace them.
+
+Before warmup, each real run saves an empty invalid snapshot marked in progress. On next launch, a complete snapshot left by a process interruption becomes an invalid result with its reason; partially written files remain excluded and are identified as incomplete in the results viewer. No journal/disk updates occur during measurement. Reference captures are separate and create no benchmark run journal.
