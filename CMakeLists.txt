@@ -69,6 +69,11 @@ execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/ben
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" COMMAND_ERROR_IS_FATAL ANY)
 
 add_library(main SHARED src/main.cpp src/Benchmark.cpp src/Forest.cpp src/Geometry.cpp src/FpsHud.cpp src/Effects.cpp src/EffectsGeometry.cpp)
+add_custom_target(benchmark_metadata
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/benchmark/build.py"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    BYPRODUCTS "${CMAKE_CURRENT_SOURCE_DIR}/benchmark/Build.h")
+add_dependencies(main benchmark_metadata)
 enable_android_thinlto(main)
 target_compile_definitions(main PRIVATE FOREST_VULKAN_SYNC=$<BOOL:${FOREST_VULKAN_SYNC}>
     FOREST_FIXED_RESOLUTION=$<BOOL:${FOREST_FIXED_RESOLUTION}>

@@ -86,6 +86,7 @@ public final class Bridge {
             device.put("thermal_status", Build.VERSION.SDK_INT >= 29 ? ((PowerManager) activity.getSystemService(Activity.POWER_SERVICE)).getCurrentThermalStatus() : JSONObject.NULL);
             write(new File(activity.getFilesDir(), "benchmark-thermal.json"), device.get("thermal_status").toString());
             refresh = activity.getWindowManager().getDefaultDisplay().getRefreshRate();
+            write(new File(activity.getFilesDir(), "benchmark-refresh.json"), refresh > 0 ? Float.toString(refresh) : "null");
             write(new File(activity.getFilesDir(), "benchmark-device.json"), device.toString());
         } catch (Exception error) { message("Device metadata failed: " + error.getMessage()); command(99); }
     }

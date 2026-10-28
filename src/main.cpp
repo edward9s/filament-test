@@ -208,7 +208,6 @@ public:
         }
     }
     void frame() {
-        benchmarkCommand();
         if(!active_) {SDL_Delay(30);return;}
         auto* native=static_cast<ANativeWindow*>(SDL_GetPointerProperty(SDL_GetWindowProperties(window_),
             SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER,nullptr));
@@ -240,6 +239,7 @@ public:
             hud_->reset();stats_.reset();
         }
         if(!swapChain_ || width_<=0 || height_<=0) {hud_->reset();SDL_Delay(20);return;}
+        benchmarkCommand();
         const uint64_t attemptStart=SDL_GetTicksNS();
         const auto waitStart=benchmarkActive_?benchmark::now():0;
         if(!renderer_->beginFrame(swapChain_)) {
@@ -286,7 +286,7 @@ private:
     std::map<uint32_t,uint8_t> observedHistory_;
     int64_t animationOrigin_=0,startedAt_=0;
     benchmark::Run run_;
-    std::string runId_,device_,thermal_;
+    std::string runId_,device_,thermal_,gpu_="null",driver_="null",driverInfo_="null";
     std::string root() const {return std::string(SDL_GetAndroidInternalStoragePath())+"/benchmarks";}
     void benchmarkCommand() {
         const int command=benchmark::command.exchange(0);
@@ -309,6 +309,12 @@ private:
         run_.start();startedAt_=benchmark::unixMs();
         runId_="filament-"+std::to_string(startedAt_)+"-"+std::to_string(benchmark::now());
         const std::string storage=SDL_GetAndroidInternalStoragePath();
+        if(backend_==backend::Backend::VULKAN) {
+            auto value=[&](backend::Platform::DeviceInfoType type){const auto v=engine_->getPlatform()->getDeviceInfo(type,nullptr);return v.empty()?std::string("null"):benchmark::quote(v.c_str());};
+            gpu_=value(backend::Platform::DeviceInfoType::VULKAN_DEVICE_NAME);
+            driver_=value(backend::Platform::DeviceInfoType::VULKAN_DRIVER_NAME);
+            driverInfo_=value(backend::Platform::DeviceInfoType::VULKAN_DRIVER_INFO);
+        }
         device_=benchmark::read(storage+"/benchmark-device.json");
         thermal_=benchmark::read(storage+"/benchmark-thermal.json");
         yaw_=.24f;pitch_=.12f;distance_=13;cameraDirty_=true;
@@ -338,12 +344,17 @@ private:
         const auto scale=view_->getLastDynamicResolutionScale();
         const auto msaa=view_->getMultiSampleAntiAliasingOptions();
         const auto actualMsaa=msaa.enabled?unsigned(msaa.sampleCount):1u;
+        std::string engine=benchmark::engineJson;
+        #ifndef NDEBUG
+        const auto build=engine.find("\"build\": \"release\"");
+        if(build!=std::string::npos)engine.replace(build,18,"\"build\": \"debug\"");
+        #endif
         std::ostringstream out;out<<std::setprecision(12)<<"{"<<identity()<<",\"repetition\":"<<benchmark::repetition.load()<<",\"started_at\":"<<startedAt_
-            <<",\"warmup_seconds\":30,\"measure_seconds\":60,\"engine\":"<<benchmark::engineJson<<",\"scene\":"<<benchmark::sceneJson
+            <<",\"warmup_seconds\":30,\"measure_seconds\":60,\"engine\":"<<engine<<",\"scene\":"<<benchmark::sceneJson
             <<",\"device\":"<<device_<<",\"environment\":{\"backend\":"<<quote(backend_==backend::Backend::VULKAN?"Vulkan":"OpenGL ES")
             <<",\"surface_size\":["<<width_<<','<<height_<<"],\"render_size\":["<<std::lround(width_*scale.x)<<','<<std::lround(height_*scale.y)
             <<"],\"dynamic_resolution\":false,\"gpu_profiling\":"<<boolean(preset_==1)<<",\"vsync_requested\":\"engine_default\",\"presentation_mode\":"<<(backend_==backend::Backend::VULKAN?"\"FIFO\"":"null")
-            <<",\"refresh_limited_possible\":true,\"refresh_hz\":"<<(refreshRate_>0?std::to_string(refreshRate_):"null")<<",\"gpu\":null,\"driver\":null,\"thermal_status\":"<<thermal_<<"},\"settings\":{\"pipeline\":\"Filament native\",\"msaa_samples\":"<<actualMsaa
+            <<",\"refresh_limited_possible\":true,\"refresh_hz\":"<<(refreshRate_>0?std::to_string(refreshRate_):"null")<<",\"gpu\":"<<gpu_<<",\"driver\":"<<driver_<<",\"driver_info\":"<<driverInfo_<<",\"thermal_status\":"<<thermal_<<"},\"settings\":{\"pipeline\":\"Filament native\",\"msaa_samples\":"<<actualMsaa
             <<",\"taa\":"<<boolean(view_->getTemporalAntiAliasingOptions().enabled)<<",\"fxaa\":"<<boolean(view_->getAntiAliasing()==AntiAliasing::FXAA)
             <<",\"shadows\":"<<boolean(view_->isShadowingEnabled())<<",\"bloom\":"<<boolean(view_->getBloomOptions().enabled)<<",\"effects\":"<<boolean(preset_!=7)
             <<",\"shadow_distance_m\":65,\"shadow_cascades\":3,\"shadow_map_size\":2048,\"ssao\":"<<boolean(view_->getAmbientOcclusionOptions().enabled)<<",\"fog\":"<<boolean(view_->getFogOptions().enabled)
@@ -355,12 +366,17 @@ private:
         if(preset_==1)out<<",\"filament_main\":"<<metric("cpu","Renderer.getFrameInfoHistory","native FrameInfo beginFrame to endFrame; asynchronous history","filament.history.main")
             <<",\"filament_backend\":"<<metric("cpu","Renderer.getFrameInfoHistory","native backendBeginFrame to backendEndFrame; asynchronous backend thread","filament.history.backend")
             <<",\"filament_gpu\":"<<metric("gpu_frame","Renderer.getFrameInfoHistory.gpuFrameDuration","native renderer frame GPU duration, includes main view and HUD, not presentation","filament.history.gpu");
-        out<<"},\"limitations\":[\"Submitted application frame intervals include rejected attempts; not display presentation FPS.\",\"Public FrameInfo exposes no per-pass breakdown in the pinned SDK; no forced GPU wait added.\",\"Vulkan FIFO is hard-coded in the pinned SDK; GLES uses EGL default swap interval. Refresh limits may apply.\",\"Initialization readiness uses 120 successful renders after synchronous asset upload, then 30 second warmup; no public pipeline compilation completion signal.\",\"65 percent uses fixed min=max bounds on the native resolution API; reported dimensions derive from its actual last scale.\",\"GPU and driver strings unavailable in this collector. Thermal snapshot captured before run.\",\"CPU beginFrame is not pure wait time; CPU render submission includes internal waits.\",\"Native frame timers may remain internally active; detailed history is collected only in GPU Diagnostic.\",\"No-effects removes six batches and three lights from the scene and skips their CPU animation; vegetation remains.\"]}";
+        out<<"},\"limitations\":[\"Submitted application frame intervals include rejected attempts; not display presentation FPS.\",\"Public FrameInfo exposes no per-pass breakdown in the pinned SDK; no forced GPU wait added.\",\"Vulkan FIFO is hard-coded in the pinned SDK; GLES uses EGL default swap interval. Refresh limits may apply.\",\"Initialization readiness uses 120 successful renders after synchronous asset upload, then 30 second warmup; no public pipeline compilation completion signal.\",\"65 percent uses fixed min=max bounds on the native resolution API; reported dimensions derive from its actual last scale.\",\"GPU and driver strings unavailable on GLES; Vulkan uses cached platform properties. Thermal snapshot captured during initialization.\",\"CPU beginFrame is not pure wait time; CPU render submission includes internal waits.\",\"Native frame timers may remain internally active; detailed history is collected only in GPU Diagnostic.\",\"No-effects removes six batches and three lights from the scene and skips their CPU animation; vegetation remains.\"]}";
         return out.str();
     }
     void finishBenchmark() {
         const bool valid=run_.valid;
-        try {benchmark::save(run_,root(),runId_,identity(),metadata());}
+        try {
+            const std::string storage=SDL_GetAndroidInternalStoragePath();
+            device_=benchmark::read(storage+"/benchmark-device.json");
+            thermal_=benchmark::read(storage+"/benchmark-thermal.json");
+            benchmark::save(run_,root(),runId_,identity(),metadata());
+        }
         catch(const std::exception& e){restoreBenchmark();benchmark::status=4000;SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"Benchmark save failed",e.what(),window_);return;}
         if(valid && benchmark::repetition<3){++benchmark::repetition;beginBenchmarkRun();}
         else {const bool cancelled=run_.reason=="cancelled by user";restoreBenchmark();benchmark::status=valid?3000:cancelled?5000:4000;}
