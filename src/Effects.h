@@ -12,6 +12,7 @@ public:
     Effects(const Effects&)=delete;
     Effects& operator=(const Effects&)=delete;
     void load(const AssetReader& read);
+    void setEnabled(bool enabled);
     void animate(float seconds,filament::math::float3 eye);
 private:
     struct Batch {
@@ -22,6 +23,7 @@ private:
         size_t count=0;
         bool visible=true;
     };
+    bool enabled_=true;
     filament::Engine& engine_;
     filament::Scene& scene_;
     std::array<Batch,size_t(Effect::Count)> batches_{};

@@ -13,3 +13,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python3 -m unittest discover -s benchmark -p 'test_*.py'
+      - name: C++ monotonic protocol and CPU timing tests
+        run: |
+          g++ -std=c++20 -Wall -Wextra -Werror benchmark/test_protocol.cpp -o /tmp/protocol-test
+          /tmp/protocol-test

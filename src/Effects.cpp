@@ -74,7 +74,14 @@ void Effects::load(const AssetReader& read) {
     }
     animate(0,{3.07f,3.16f,9.54f});
 }
+void Effects::setEnabled(bool enabled) {
+    if(enabled==enabled_)return;
+    enabled_=enabled;
+    for(auto& batch:batches_) {if(enabled)scene_.addEntity(batch.entity);else scene_.remove(batch.entity);}
+    for(auto light:lights_) {if(enabled)scene_.addEntity(light);else scene_.remove(light);}
+}
 void Effects::animate(float seconds,float3 eye) {
+    if(!enabled_)return;
     if(!materials_[0])throw std::logic_error("Effects are not loaded");
     auto upload=uploads_.acquire();
     auto& meshes=upload.data();
