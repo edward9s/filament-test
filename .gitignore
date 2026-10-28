@@ -14,3 +14,5 @@ android/app/libs/
 __pycache__/
 *.jks
 *.keystore
+
+benchmark/__pycache__/
