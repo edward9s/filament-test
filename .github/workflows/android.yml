@@ -8,7 +8,7 @@ on:
         type: boolean
         default: true
       vulkan_sync:
-        description: 'GPU lifetime diagnostic (slower; unsuitable for FPS comparisons)'
+        description: 'GPU lifetime diagnostic, not VSync (slower; unsuitable for FPS comparisons)'
         type: boolean
         default: false
 
@@ -232,6 +232,7 @@ jobs:
           App version: 0.2.2. Local effects lighting calibrated toward godot-test; source stone roughness.
           GPU assets: packed static vertices, UASTC textures and lossless normal maps.
           Fixed 100% scene resolution: ${FOREST_FIXED_RESOLUTION} (OFF = dynamic 65-100% per axis).
+          Presentation: Vulkan FIFO (pinned SDK); OpenGL ES EGL default. No explicit VSync-off option; refresh-limited FPS is not maximum renderer throughput.
           Vulkan synchronization diagnostic: ${FOREST_VULKAN_SYNC}.
           Vulkan lifetime/synchronization validation: ${FOREST_VULKAN_VALIDATION}.
           Workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
@@ -241,6 +242,8 @@ jobs:
             echo '## Evaluation settings'
             echo "- Native 100%: ${FOREST_FIXED_RESOLUTION} (OFF = Auto 65-100% per axis)"
             echo '- Backend: OpenGL ES on launch; tap FPS to switch to Vulkan'
+            echo '- Presentation: Vulkan FIFO (SDK); OpenGL ES EGL default. No explicit VSync-off option.'
+            echo '- Refresh-limited FPS cannot establish maximum renderer throughput.'
             echo "- Vulkan sync diagnostic: ${FOREST_VULKAN_SYNC}"
             echo "- Vulkan validation: ${FOREST_VULKAN_VALIDATION}"
             echo "- Commit: ${GITHUB_SHA}"

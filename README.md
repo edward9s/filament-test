@@ -78,7 +78,8 @@ See the [Vulkan acquisition result contract](https://docs.vulkan.org/refpages/la
 
 For repeatable FPS measurements, wait after each switch for shaders to warm up, use
 identical camera positions and scene conditions, and record multiple runs in each
-backend. This demo retains automatic dynamic resolution (65–100% per axis) by default:
+backend. New manual workflow builds default to fixed Native 100% scene resolution;
+unchecking `fixed_resolution` selects automatic dynamic resolution (65–100% per axis).
 FPS alone cannot establish the faster renderer when the backends choose different
 internal resolutions. For a same-resolution comparison, select `fixed_resolution`
 in **Actions → Android test build**. That one APK renders both backends at fixed
@@ -90,6 +91,19 @@ in `ForestPerf` after the scene is ready. The Actions summary and release notes
 record the build settings and APK SHA-256; changing workflow inputs does not change
 an APK that has already been built or installed.
 Leave `vulkan_sync` and `vulkan_validation` unchecked for performance runs.
+
+### Maximum-FPS limit
+
+There is currently no VSync-off input for Filament. This does not mean that VSync is off:
+the pinned fork's [Vulkan swapchain implementation](https://github.com/edward9s/filament/blob/48dc0de08cba360502ad62cbc29b9a0a6e75abc2/filament/backend/src/vulkan/platform/VulkanPlatformSwapChainImpl.cpp#L240)
+hard-codes `VK_PRESENT_MODE_FIFO_KHR`. The OpenGL ES path uses EGL's default swap
+interval; this app does not request interval zero. The workflow summary and release
+notes state these policies. `vulkan_sync` is a queue-wait diagnostic, not VSync.
+
+Godot and Bevy can request uncapped presentation, but a maximum-FPS ranking also needs
+to establish that each backend is not blocked by its presentation path. If FPS is
+limited by display refresh, report that limit instead of interpreting it as maximum
+renderer throughput.
 
 Every two seconds, Android logcat prints a `ForestPerf` line containing the backend,
 resolution mode, surface size, last scene resolution scale, reported display refresh
