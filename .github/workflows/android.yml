@@ -211,6 +211,7 @@ jobs:
           ndk_bin="$ANDROID_HOME/ndk/30.0.16248370/toolchains/llvm/prebuilt/linux-x86_64/bin"
           "$ndk_bin/llvm-readelf" --dyn-syms "$main_so" | grep -E '[[:space:]]JNI_OnLoad([[:space:]]|$)'
           python3 scripts/check-apk.py "$apk"
+          python3 benchmark/check_apk.py Filament "$apk" --commit "$GITHUB_SHA"
           "$tools/apksigner" verify --verbose --print-certs "$apk"
           cp "$apk" FilamentSDL3-test-arm64.apk
 

@@ -14,3 +14,9 @@ android/app/libs/
 __pycache__/
 *.jks
 *.keystore
+
+benchmark/__pycache__/
+
+benchmark/build.json
+benchmark/Build.h
+src/benchmark_build.rs

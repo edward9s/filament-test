@@ -1,6 +1,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include "Forest.h"
+#include "Benchmark.h"
 #include "FpsHud.h"
 #include "Effects.h"
 #include "RendererEngine.h"
@@ -140,12 +141,14 @@ public:
         Engine::destroy(&engine_);
     }
     void suspend() {
+        invalidateBenchmark("application paused or Surface hidden");
         active_=false;fingers_.clear();hudFingers_.clear();mouseHudDown_=false;
         if(hud_)hud_->reset();
         stats_.reset();
         releaseSwapChain();
     }
     void event(const SDL_Event& e) {
+        if(benchmarkActive_ && (e.type==SDL_EVENT_FINGER_DOWN || e.type==SDL_EVENT_FINGER_UP || e.type==SDL_EVENT_FINGER_MOTION || e.type==SDL_EVENT_MOUSE_BUTTON_DOWN || e.type==SDL_EVENT_MOUSE_BUTTON_UP || e.type==SDL_EVENT_MOUSE_MOTION || e.type==SDL_EVENT_MOUSE_WHEEL || e.type==SDL_EVENT_KEY_DOWN))return;
         switch(e.type) {
         case SDL_EVENT_WILL_ENTER_BACKGROUND: case SDL_EVENT_WINDOW_HIDDEN:
         case SDL_EVENT_WINDOW_MINIMIZED: suspend();break;
@@ -209,6 +212,7 @@ public:
         auto* native=static_cast<ANativeWindow*>(SDL_GetPointerProperty(SDL_GetWindowProperties(window_),
             SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER,nullptr));
         if(native!=native_) {
+            invalidateBenchmark("native Surface recreated");
             hud_->reset();
             stats_.reset();
             releaseSwapChain();
@@ -226,6 +230,7 @@ public:
         int width=0,height=0;
         SDL_GetWindowSizeInPixels(window_,&width,&height);
         if(width!=width_ || height!=height_) {
+            invalidateBenchmark("Surface dimensions changed");
             width_=width;height_=height;
             if(width_>0 && height_>0) {
                 view_->setViewport({0,0,uint32_t(width_),uint32_t(height_)});
@@ -234,33 +239,192 @@ public:
             hud_->reset();stats_.reset();
         }
         if(!swapChain_ || width_<=0 || height_<=0) {hud_->reset();SDL_Delay(20);return;}
+        benchmarkCommand();
         const uint64_t attemptStart=SDL_GetTicksNS();
+        const auto waitStart=benchmarkActive_?benchmark::now():0;
         if(!renderer_->beginFrame(swapChain_)) {
             stats_.skipped();
             // Back off only rejected attempts. Never add a wait to a rendered frame.
             SDL_Delay(1);return;
         }
+        const auto beginDone=benchmarkActive_?benchmark::now():0;
         const double horizontal=distance_*std::cos(pitch_);
         const float3 eye{float(horizontal*std::sin(yaw_)),1.6f+distance_*std::sin(pitch_),float(-3+horizontal*std::cos(yaw_))};
         if(cameraDirty_) {camera_->lookAt(eye,{0,1.6,-3},{0,1,0});cameraDirty_=false;}
-        const float seconds=float(SDL_GetTicks()-start_)*.001f;
+        const float seconds=benchmarkActive_ ? (reference_?38.52f:float(benchmark::now()-animationOrigin_)*1e-9f) : float(SDL_GetTicks()-start_)*.001f;
+        const auto sceneStart=benchmarkActive_?benchmark::now():0;
         forest_->animate(seconds);
+        const auto effectsStart=benchmarkActive_?benchmark::now():0;
         effects_->animate(seconds,eye);
+        const auto renderStart=benchmarkActive_?benchmark::now():0;
         renderer_->render(view_);
         hud_->render(*renderer_,width_,height_);
         renderer_->endFrame();
+        const auto renderDone=benchmarkActive_?benchmark::now():0;
         const uint64_t submitted=SDL_GetTicksNS();
         hud_->completedFrame(double(submitted)*1e-9);
-        stats_.submitted(submitted,submitted-attemptStart);
-        stats_.report(*renderer_,*view_,backend_==backend::Backend::VULKAN,width_,height_,refreshRate_);
+        if(benchmarkActive_) {
+            const auto completed=benchmark::now();
+            benchmarkFrame(completed,{0,0,seconds,double(effectsStart-sceneStart)*1e-6,double(renderStart-effectsStart)*1e-6,double(renderDone-renderStart)*1e-6,double(beginDone-waitStart)*1e-6});
+        } else {
+            stats_.submitted(submitted,submitted-attemptStart);
+            stats_.report(*renderer_,*view_,backend_==backend::Backend::VULKAN,width_,height_,refreshRate_);
+        }
     }
 private:
+
+    struct SavedBenchmark {
+        CameraOrbit camera;
+        DynamicResolutionOptions resolution;
+        TemporalAntiAliasingOptions taa;
+        MultiSampleAntiAliasingOptions msaa;
+        BloomOptions bloom;
+        AntiAliasing aa;
+        bool shadows;
+    } saved_;
+    bool benchmarkActive_=false,reference_=false;
+    unsigned preset_=0,drawn_=0;
+    std::map<uint32_t,uint8_t> observedHistory_;
+    int64_t animationOrigin_=0,startedAt_=0;
+    benchmark::Run run_;
+    std::string runId_,device_,thermal_,gpu_="null",driver_="null",driverInfo_="null";
+    std::string root() const {const char* path=SDL_GetAndroidInternalStoragePath();if(!path)throw std::runtime_error("Android internal storage unavailable");return std::string(path)+"/benchmarks";}
+    void benchmarkCommand() {
+        const int command=benchmark::command.exchange(0);
+        if(command==10 && benchmarkActive_ && reference_){restoreBenchmark();return;}
+        if(command==90 || command==98 || command==99) {
+            invalidateBenchmark(command==90?"cancelled by user":command==98?"display refresh rate changed":"application paused");return;
+        }
+        if(command<1 || command>9 || benchmarkActive_)return;
+        if(FOREST_VULKAN_SYNC || FOREST_VULKAN_VALIDATION) {
+            benchmark::status=4000;SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"Benchmark unavailable","Build with Vulkan synchronization and validation diagnostics OFF.",window_);return;
+        }
+        saved_={cameraOrbit(),view_->getDynamicResolutionOptions(),view_->getTemporalAntiAliasingOptions(),
+            view_->getMultiSampleAntiAliasingOptions(),view_->getBloomOptions(),view_->getAntiAliasing(),view_->isShadowingEnabled()};
+        preset_=command==9?0:unsigned(command-1);reference_=command==9;
+        benchmarkActive_=true;benchmark::repetition=1;
+        fingers_.clear();hudFingers_.clear();mouseHudDown_=false;switchRequested_=false;
+        safeBeginBenchmarkRun();
+    }
+    void safeBeginBenchmarkRun() {
+        try {beginBenchmarkRun();}
+        catch(const std::exception& error) {restoreBenchmark();benchmark::status=4000;SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"Benchmark initialization failed",error.what(),window_);}
+    }
+    void beginBenchmarkRun() {
+        run_.start();startedAt_=benchmark::unixMs();
+        runId_="filament-"+std::to_string(startedAt_)+"-"+std::to_string(benchmark::now());
+        const std::string storage=SDL_GetAndroidInternalStoragePath();
+        if(backend_==backend::Backend::VULKAN) {
+            auto value=[&](backend::Platform::DeviceInfoType type){const auto v=engine_->getPlatform()->getDeviceInfo(type,nullptr);return v.empty()?std::string("null"):benchmark::quote(v.c_str());};
+            gpu_=value(backend::Platform::DeviceInfoType::VULKAN_DEVICE_NAME);
+            driver_=value(backend::Platform::DeviceInfoType::VULKAN_DRIVER_NAME);
+            driverInfo_=value(backend::Platform::DeviceInfoType::VULKAN_DRIVER_INFO);
+        }
+        device_=benchmark::read(storage+"/benchmark-device.json");
+        thermal_=benchmark::read(storage+"/benchmark-thermal.json");
+        yaw_=.24f;pitch_=.12f;distance_=13;cameraDirty_=true;
+        auto resolution=saved_.resolution;resolution.enabled=preset_==6;
+        if(preset_==6){resolution.minScale={.65f,.65f};resolution.maxScale={.65f,.65f};resolution.homogeneousScaling=true;}
+        view_->setDynamicResolutionOptions(resolution);
+        view_->setShadowingEnabled(preset_!=3);
+        auto taa=saved_.taa;if(preset_==4)taa.enabled=false;view_->setTemporalAntiAliasingOptions(taa);
+        auto msaa=saved_.msaa;if(preset_==4)msaa.enabled=false;view_->setMultiSampleAntiAliasingOptions(msaa);
+        view_->setAntiAliasing(preset_==4?AntiAliasing::NONE:saved_.aa);
+        auto bloom=saved_.bloom;bloom.enabled=preset_!=5;view_->setBloomOptions(bloom);
+        effects_->setEnabled(preset_!=7);
+        Renderer::DisplayInfo pacing;pacing.refreshRate=0;renderer_->setDisplayInfo(pacing);
+        animationOrigin_=benchmark::now();drawn_=0;observedHistory_.clear();benchmark::status=7000;
+        if(!reference_) {
+            run_.reason="process interrupted before completion";
+            benchmark::save(run_,root(),runId_,identity(),metadata());
+            benchmark::write(std::filesystem::path(root())/runId_/".pending","in progress");
+            run_.reason.clear();
+        }
+    }
+    void restoreBenchmark() {
+        view_->setDynamicResolutionOptions(saved_.resolution);view_->setTemporalAntiAliasingOptions(saved_.taa);
+        view_->setMultiSampleAntiAliasingOptions(saved_.msaa);view_->setAntiAliasing(saved_.aa);
+        view_->setBloomOptions(saved_.bloom);view_->setShadowingEnabled(saved_.shadows);effects_->setEnabled(true);
+        yaw_=saved_.camera.yaw;pitch_=saved_.camera.pitch;distance_=saved_.camera.distance;cameraDirty_=true;
+        benchmarkActive_=false;reference_=false;run_.frames.clear();run_.metrics.clear();stats_.reset();hud_->reset();
+        updateDisplayInfo();
+    }
+    std::string identity() const {
+        return "\"schema_version\":\"1.0.0\",\"run_id\":"+benchmark::quote(runId_)+",\"preset_id\":"+benchmark::quote(benchmark::presets[preset_])+",\"valid\":"+benchmark::boolean(run_.valid)+",\"invalid_reason\":"+(run_.reason.empty()?"null":benchmark::quote(run_.reason));
+    }
+    std::string metadata() const {
+        using benchmark::boolean;using benchmark::quote;using benchmark::metric;
+        const auto scale=view_->getLastDynamicResolutionScale();
+        const auto msaa=view_->getMultiSampleAntiAliasingOptions();
+        const auto actualMsaa=msaa.enabled?unsigned(msaa.sampleCount):1u;
+        std::string engine=benchmark::engineJson;
+        #ifndef NDEBUG
+        const auto build=engine.find("\"build\": \"release\"");
+        if(build!=std::string::npos)engine.replace(build,18,"\"build\": \"debug\"");
+        #endif
+        std::ostringstream out;out<<std::setprecision(12)<<"{"<<identity()<<",\"repetition\":"<<benchmark::repetition.load()<<",\"started_at\":"<<startedAt_
+            <<",\"reference_only\":"<<boolean(reference_)<<",\"reference_animation_seconds\":"<<(reference_?"38.52":"null")<<",\"warmup_seconds\":30,\"measure_seconds\":60,\"engine\":"<<engine<<",\"scene\":"<<benchmark::sceneJson
+            <<",\"device\":"<<device_<<",\"environment\":{\"backend\":"<<quote(backend_==backend::Backend::VULKAN?"Vulkan":"OpenGL ES")
+            <<",\"surface_size\":["<<width_<<','<<height_<<"],\"render_size\":["<<std::lround(width_*scale.x)<<','<<std::lround(height_*scale.y)
+            <<"],\"dynamic_resolution\":false,\"gpu_profiling\":"<<boolean(preset_==1)<<",\"vsync_requested\":\"engine_default\",\"presentation_mode\":"<<(backend_==backend::Backend::VULKAN?"\"FIFO\"":"null")
+            <<",\"refresh_limited_possible\":true,\"refresh_hz\":"<<(refreshRate_>0?std::to_string(refreshRate_):"null")<<",\"gpu\":"<<gpu_<<",\"driver\":"<<driver_<<",\"driver_info\":"<<driverInfo_<<",\"thermal_status\":"<<thermal_<<"},\"settings\":{\"pipeline\":\"Filament native\",\"msaa_samples\":"<<actualMsaa
+            <<",\"taa\":"<<boolean(view_->getTemporalAntiAliasingOptions().enabled)<<",\"fxaa\":"<<boolean(view_->getAntiAliasing()==AntiAliasing::FXAA)
+            <<",\"shadows\":"<<boolean(view_->isShadowingEnabled())<<",\"bloom\":"<<boolean(view_->getBloomOptions().enabled)<<",\"effects\":"<<boolean(preset_!=7)
+            <<",\"shadow_distance_m\":65,\"shadow_cascades\":3,\"shadow_map_size\":2048,\"ssao\":"<<boolean(view_->getAmbientOcclusionOptions().enabled)<<",\"fog\":"<<boolean(view_->getFogOptions().enabled)
+            <<",\"renderer_frame_pacing\":false,\"post_processing\":"<<boolean(view_->isPostProcessingEnabled())<<",\"shadow_filter_enum\":"<<unsigned(view_->getShadowType())<<",\"bloom_strength\":"<<view_->getBloomOptions().strength<<",\"fixed_scale_via_dynamic_resolution_api\":"<<boolean(preset_==6)<<"},\"metrics\":{"
+            <<"\"cpu_scene_ms\":"<<metric("cpu","steady_clock","Forest.animate material uniform updates only","filament.forest.animate")
+            <<",\"cpu_effects_ms\":"<<metric("cpu","steady_clock","Effects.animate CPU geometry, sorting, uploads and local light updates","filament.effects.animate")
+            <<",\"cpu_submit_ms\":"<<metric("cpu","steady_clock","before renderer.render(main view) through HUD render and renderer.endFrame; includes internal waits","filament.render.endFrame")
+            <<",\"cpu_wait_ms\":"<<metric("cpu","steady_clock","renderer.beginFrame accepted attempt only; includes CPU work and waiting, not pure synchronization","filament.beginFrame");
+        if(preset_==1)out<<",\"filament_main\":"<<metric("cpu","Renderer.getFrameInfoHistory","native FrameInfo beginFrame to endFrame; asynchronous history","filament.history.main")
+            <<",\"filament_backend\":"<<metric("cpu","Renderer.getFrameInfoHistory","native backendBeginFrame to backendEndFrame; asynchronous backend thread","filament.history.backend")
+            <<",\"filament_gpu\":"<<metric("gpu_frame","Renderer.getFrameInfoHistory.gpuFrameDuration","native renderer frame GPU duration, includes main view and HUD, not presentation","filament.history.gpu");
+        out<<"},\"limitations\":[\"Submitted application frame intervals include rejected attempts; not display presentation FPS.\",\"Public FrameInfo exposes no per-pass breakdown in the pinned SDK; no forced GPU wait added.\",\"Renderer frame pacing requests off via DisplayInfo.refreshRate=0; Vulkan FIFO and GLES default EGL interval remain. Refresh limits may apply.\",\"Initialization readiness uses 120 successful renders after synchronous asset upload, then 30 second warmup; no public pipeline compilation completion signal.\",\"65 percent uses fixed min=max bounds on the native resolution API; reported dimensions derive from its actual last scale.\",\"GPU and driver strings unavailable on GLES; Vulkan uses cached platform properties. Thermal snapshot captured during initialization.\",\"CPU beginFrame is not pure wait time; CPU render submission includes internal waits.\",\"Native frame timers may remain internally active; detailed history is collected only in GPU Diagnostic.\",\"No-effects removes six batches and three lights from the scene and skips their CPU animation; vegetation remains.\"]}";
+        return out.str();
+    }
+    void finishBenchmark() {
+        const bool valid=run_.valid;
+        try {
+            const std::string storage=SDL_GetAndroidInternalStoragePath();
+            device_=benchmark::read(storage+"/benchmark-device.json");
+            thermal_=benchmark::read(storage+"/benchmark-thermal.json");
+            benchmark::save(run_,root(),runId_,identity(),metadata());
+        }
+        catch(const std::exception& e){restoreBenchmark();benchmark::status=4000;SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"Benchmark save failed",e.what(),window_);return;}
+        if(valid && benchmark::repetition<3){++benchmark::repetition;safeBeginBenchmarkRun();}
+        else {const bool cancelled=run_.reason=="cancelled by user";restoreBenchmark();benchmark::status=valid?3000:cancelled?5000:4000;}
+    }
+    void invalidateBenchmark(const char* reason) {if(benchmarkActive_){if(reference_){restoreBenchmark();benchmark::status=4000;}else{run_.stop(reason);finishBenchmark();}}}
+    void benchmarkFrame(int64_t now,benchmark::Frame frame) {
+        ++drawn_;
+        if(reference_) {
+            if(drawn_>=120 && benchmark::status!=6000){std::filesystem::create_directories(root());benchmark::write(std::filesystem::path(root())/"reference-settings.json",metadata());benchmark::status=6000;}
+            return;
+        }
+        const bool ready=drawn_>=120;
+        if(run_.sample(now,ready,frame))animationOrigin_=now;
+        if(preset_==1 && run_.phase==benchmark::Run::Measure && !run_.frames.empty()) {
+            const auto history=renderer_->getFrameInfoHistory(16);
+            for(auto it=history.rbegin();it!=history.rend();++it) {
+                const auto& f=*it;
+                if(f.beginFrame<run_.anchor)continue;
+                auto& mask=observedHistory_[f.frameId];
+                auto append=[&](const char* name,int64_t ns,uint8_t bit) {if(ns>0 && !(mask&bit)){if(run_.metrics.size()>=180000){run_.stop("metric capacity exceeded");return;}run_.metrics.push_back({f.frameId,uint32_t(run_.frames.size()-1),name,double(ns)*1e-6});mask|=bit;}};
+                if(f.endFrame>=f.beginFrame)append("filament_main",f.endFrame-f.beginFrame,1);
+                if(f.backendBeginFrame>0 && f.backendEndFrame>=f.backendBeginFrame)append("filament_backend",f.backendEndFrame-f.backendBeginFrame,2);
+                append("filament_gpu",f.gpuFrameDuration,4);
+            }
+        }
+        if(run_.phase==benchmark::Run::Finished){finishBenchmark();return;}
+        benchmark::status=run_.phase==benchmark::Run::Waiting?7000:run_.phase==benchmark::Run::Warmup?1000+int((now-run_.epoch)/1'000'000'000ll):2000+int((now-run_.anchor)/1'000'000'000ll);
+    }
+
     void updateDisplayInfo() {
         const auto* mode=SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window_));
         const float next=mode && mode->refresh_rate>0?mode->refresh_rate:0;
-        if(next!=refreshRate_) {stats_.reset();if(hud_)hud_->reset();}
+        if(next!=refreshRate_) {invalidateBenchmark("display refresh rate changed");stats_.reset();if(hud_)hud_->reset();}
         refreshRate_=next;
-        Renderer::DisplayInfo info;info.refreshRate=refreshRate_;renderer_->setDisplayInfo(info);
+        Renderer::DisplayInfo info;info.refreshRate=benchmarkActive_?0:refreshRate_;renderer_->setDisplayInfo(info);
         if(refreshRate_>0)SDL_Log("Display refresh rate: %.3f Hz",double(refreshRate_));
         else SDL_Log("Display refresh rate unavailable; Filament display pacing disabled");
     }

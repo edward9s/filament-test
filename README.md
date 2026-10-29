@@ -399,3 +399,7 @@ first frame, and initialization and swapchain readiness are logged separately.
 Official references: [Filament](https://github.com/google/filament/releases/tag/v1.78.1),
 [SDL3](https://github.com/libsdl-org/SDL/releases/tag/release-3.4.18),
 [asset credits](assets/CREDITS.md).
+
+## Unified benchmark
+
+Implementation status, protocol and comparison CLI: [benchmark/README.md](benchmark/README.md).
