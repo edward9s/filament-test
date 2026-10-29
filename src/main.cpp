@@ -332,6 +332,7 @@ private:
         view_->setAntiAliasing(preset_==4?AntiAliasing::NONE:saved_.aa);
         auto bloom=saved_.bloom;bloom.enabled=preset_!=5;view_->setBloomOptions(bloom);
         effects_->setEnabled(preset_!=7);
+        Renderer::DisplayInfo pacing;pacing.refreshRate=0;renderer_->setDisplayInfo(pacing);
         animationOrigin_=benchmark::now();drawn_=0;observedHistory_.clear();benchmark::status=7000;
         if(!reference_) {
             run_.reason="process interrupted before completion";
@@ -346,6 +347,7 @@ private:
         view_->setBloomOptions(saved_.bloom);view_->setShadowingEnabled(saved_.shadows);effects_->setEnabled(true);
         yaw_=saved_.camera.yaw;pitch_=saved_.camera.pitch;distance_=saved_.camera.distance;cameraDirty_=true;
         benchmarkActive_=false;reference_=false;run_.frames.clear();run_.metrics.clear();stats_.reset();hud_->reset();
+        updateDisplayInfo();
     }
     std::string identity() const {
         return "\"schema_version\":\"1.0.0\",\"run_id\":"+benchmark::quote(runId_)+",\"preset_id\":"+benchmark::quote(benchmark::presets[preset_])+",\"valid\":"+benchmark::boolean(run_.valid)+",\"invalid_reason\":"+(run_.reason.empty()?"null":benchmark::quote(run_.reason));
@@ -369,7 +371,7 @@ private:
             <<",\"taa\":"<<boolean(view_->getTemporalAntiAliasingOptions().enabled)<<",\"fxaa\":"<<boolean(view_->getAntiAliasing()==AntiAliasing::FXAA)
             <<",\"shadows\":"<<boolean(view_->isShadowingEnabled())<<",\"bloom\":"<<boolean(view_->getBloomOptions().enabled)<<",\"effects\":"<<boolean(preset_!=7)
             <<",\"shadow_distance_m\":65,\"shadow_cascades\":3,\"shadow_map_size\":2048,\"ssao\":"<<boolean(view_->getAmbientOcclusionOptions().enabled)<<",\"fog\":"<<boolean(view_->getFogOptions().enabled)
-            <<",\"post_processing\":"<<boolean(view_->isPostProcessingEnabled())<<",\"shadow_filter_enum\":"<<unsigned(view_->getShadowType())<<",\"bloom_strength\":"<<view_->getBloomOptions().strength<<",\"fixed_scale_via_dynamic_resolution_api\":"<<boolean(preset_==6)<<"},\"metrics\":{"
+            <<",\"renderer_frame_pacing\":false,\"post_processing\":"<<boolean(view_->isPostProcessingEnabled())<<",\"shadow_filter_enum\":"<<unsigned(view_->getShadowType())<<",\"bloom_strength\":"<<view_->getBloomOptions().strength<<",\"fixed_scale_via_dynamic_resolution_api\":"<<boolean(preset_==6)<<"},\"metrics\":{"
             <<"\"cpu_scene_ms\":"<<metric("cpu","steady_clock","Forest.animate material uniform updates only","filament.forest.animate")
             <<",\"cpu_effects_ms\":"<<metric("cpu","steady_clock","Effects.animate CPU geometry, sorting, uploads and local light updates","filament.effects.animate")
             <<",\"cpu_submit_ms\":"<<metric("cpu","steady_clock","before renderer.render(main view) through HUD render and renderer.endFrame; includes internal waits","filament.render.endFrame")
@@ -377,7 +379,7 @@ private:
         if(preset_==1)out<<",\"filament_main\":"<<metric("cpu","Renderer.getFrameInfoHistory","native FrameInfo beginFrame to endFrame; asynchronous history","filament.history.main")
             <<",\"filament_backend\":"<<metric("cpu","Renderer.getFrameInfoHistory","native backendBeginFrame to backendEndFrame; asynchronous backend thread","filament.history.backend")
             <<",\"filament_gpu\":"<<metric("gpu_frame","Renderer.getFrameInfoHistory.gpuFrameDuration","native renderer frame GPU duration, includes main view and HUD, not presentation","filament.history.gpu");
-        out<<"},\"limitations\":[\"Submitted application frame intervals include rejected attempts; not display presentation FPS.\",\"Public FrameInfo exposes no per-pass breakdown in the pinned SDK; no forced GPU wait added.\",\"Vulkan FIFO is hard-coded in the pinned SDK; GLES uses EGL default swap interval. Refresh limits may apply.\",\"Initialization readiness uses 120 successful renders after synchronous asset upload, then 30 second warmup; no public pipeline compilation completion signal.\",\"65 percent uses fixed min=max bounds on the native resolution API; reported dimensions derive from its actual last scale.\",\"GPU and driver strings unavailable on GLES; Vulkan uses cached platform properties. Thermal snapshot captured during initialization.\",\"CPU beginFrame is not pure wait time; CPU render submission includes internal waits.\",\"Native frame timers may remain internally active; detailed history is collected only in GPU Diagnostic.\",\"No-effects removes six batches and three lights from the scene and skips their CPU animation; vegetation remains.\"]}";
+        out<<"},\"limitations\":[\"Submitted application frame intervals include rejected attempts; not display presentation FPS.\",\"Public FrameInfo exposes no per-pass breakdown in the pinned SDK; no forced GPU wait added.\",\"Renderer frame pacing requests off via DisplayInfo.refreshRate=0; Vulkan FIFO and GLES default EGL interval remain. Refresh limits may apply.\",\"Initialization readiness uses 120 successful renders after synchronous asset upload, then 30 second warmup; no public pipeline compilation completion signal.\",\"65 percent uses fixed min=max bounds on the native resolution API; reported dimensions derive from its actual last scale.\",\"GPU and driver strings unavailable on GLES; Vulkan uses cached platform properties. Thermal snapshot captured during initialization.\",\"CPU beginFrame is not pure wait time; CPU render submission includes internal waits.\",\"Native frame timers may remain internally active; detailed history is collected only in GPU Diagnostic.\",\"No-effects removes six batches and three lights from the scene and skips their CPU animation; vegetation remains.\"]}";
         return out.str();
     }
     void finishBenchmark() {
@@ -422,7 +424,7 @@ private:
         const float next=mode && mode->refresh_rate>0?mode->refresh_rate:0;
         if(next!=refreshRate_) {invalidateBenchmark("display refresh rate changed");stats_.reset();if(hud_)hud_->reset();}
         refreshRate_=next;
-        Renderer::DisplayInfo info;info.refreshRate=refreshRate_;renderer_->setDisplayInfo(info);
+        Renderer::DisplayInfo info;info.refreshRate=benchmarkActive_?0:refreshRate_;renderer_->setDisplayInfo(info);
         if(refreshRate_>0)SDL_Log("Display refresh rate: %.3f Hz",double(refreshRate_));
         else SDL_Log("Display refresh rate unavailable; Filament display pacing disabled");
     }
